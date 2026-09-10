@@ -2,12 +2,11 @@
 
 Updated: 2026-09-10.
 
-## Git publication attempt (2026-09-10)
+## Git publication completed (2026-09-10)
 
-- User authorized pushing to the selected GitHub repository. Initialized local Git on `main`; publication remains pending.
-- Reran all 69 tests successfully (outside the sandbox because Node child-process spawning was blocked); static build passed. A focused source/build scan found no credential patterns or private spreadsheet links.
-- GitHub CLI is unavailable, Git has no configured author name/email, and the noninteractive remote check failed because GitHub authentication is unavailable. The signed-out browser shows 404 for the target; repository existence remains unconfirmed.
-- Opened GitHub sign-in for the user. Next: sign in, confirm/create `radubigu/LearnGerman`, configure repository-local commit identity and Git authentication, commit and push. No commit, push, or deployment has occurred.
+- Created the public repository radubigu/LearnGerman and pushed initial commit b490ba4 on main. Local main tracks origin/main. Git Credential Manager authentication completed through GitHub device sign-in; repository-local author uses radubigu and its GitHub no-reply address.
+- All 69 tests and the static build passed before publication. Reviewed/staged 30 project files; generated dist and local configuration are excluded. Focused credential/private-sheet-link scan found no matches; staged whitespace check passed.
+- These results supersede the historical no-repository/no-push notes below. GitHub Pages deployment and deployed Google authorization remain unverified. Next: enable Pages with GitHub Actions, verify the workflow, configure the Google origin, then test phone/cross-device save and practice.
 
 ## Current phase
 

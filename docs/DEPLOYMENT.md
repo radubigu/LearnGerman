@@ -2,7 +2,7 @@
 
 Target chosen by the user: `radubigu/LearnGerman`.
 
-Status: deployment workflow prepared locally. Repository existence, publication, and Google origin configuration have not been verified or changed. Browser access to GitHub was declined during setup.
+Status (2026-09-10): public repository created and source pushed to main. The deployment workflow is included. Pages deployment and Google origin configuration remain unverified. Repository creation/upload steps below are now complete.
 
 ## Publish the prototype
 
