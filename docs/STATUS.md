@@ -1,0 +1,128 @@
+# Current project status
+
+Updated: 2026-09-10.
+
+## Git publication attempt (2026-09-10)
+
+- User authorized pushing to the selected GitHub repository. Initialized local Git on `main`; publication remains pending.
+- Reran all 69 tests successfully (outside the sandbox because Node child-process spawning was blocked); static build passed. A focused source/build scan found no credential patterns or private spreadsheet links.
+- GitHub CLI is unavailable, Git has no configured author name/email, and the noninteractive remote check failed because GitHub authentication is unavailable. The signed-out browser shows 404 for the target; repository existence remains unconfirmed.
+- Opened GitHub sign-in for the user. Next: sign in, confirm/create `radubigu/LearnGerman`, configure repository-local commit identity and Git authentication, commit and push. No commit, push, or deployment has occurred.
+
+## Current phase
+
+User validation (2026-09-07): the user reports testing the current app in their browser and with simulated iPhone rendering, and is happy with it. This is user-reported browser/responsive validation, not a real-device or deployed Google sign-in/cross-device check. Next milestone is publishing the prepared prototype for an actual phone test; further feature expansion is not required first.
+
+Latest refinement (2026-09-07): the user found the expanded progress area cluttered and reported an old completed round appearing after refresh. Completed summaries are now transient: old snapshots no longer restore them, and new snapshots persist unfinished rounds only. Pending review events remain independently recoverable. The overview is compact, with progress details and practice options collapsed; current-round results have their own card and a Zur Übersicht action. Repeated failed skills for one entry are grouped without repeating the word/definition. Idle saved-state filler is removed, while pending/error notices remain visible.
+
+Validation for this refinement: all 69 tests passed, including completed legacy snapshot recovery with pending answers and unchanged unfinished-round resume/deduplication. JavaScript syntax checks and static build passed. No personal Google data or account state was changed; browser interaction/visual verification has not been performed.
+
+Latest implementation (2026-09-07): progress overview and full saved-word editing are implemented locally. The user reported deleting the problematic sheet row and requested no further investigation. They declined daily-use smoother/durable-draft/reconnect/sync changes and offline support. Target for online phone testing is radubigu/LearnGerman; local Pages workflow and deployment guide are ready, but browser access to GitHub was declined, so no repository creation or publication occurred.
+
+The user reports vocabulary save/reload working and declined the separate library/sets milestone. Progressive practice using Meine Auswahl is implemented. On 2026-09-07 the user completed a round but reported 14 pending answers and “Ungültige Bedeutung” at save. A matching failure was reproduced with an invalid vocabulary payload; the exact personal sheet row has not been inspected. The save/recovery dependency was fixed and needs a live retry. GitHub repository creation and deployment remain outstanding.
+
+Current architecture: static app targeted at GitHub Pages + private Google Sheet + Google browser authorization + WiktAPI dictionary lookup with manual Wiktionary fallback. This is not a deployed system.
+
+## Completed
+
+- [x] Captured learner preferences: one user, Standard German, currently B1 and aiming for C1 or higher; clear German definitions without fixed-level branding.
+- [x] Documented vocabulary management, noun grammar, selected meanings, and progressive practice requirements.
+- [x] Recorded the existing lookup script's location and inspected behavior from the planning discussion.
+- [x] Compared hosting and storage options and recorded privacy requirements.
+- [x] Created durable project instructions, plan, README, and this handoff.
+- [x] Implemented dictionary search, separate entries, noun forms, meaning selection, and session-selection download.
+- [x] Implemented Google per-file authorization and a new-sheet create/read test with an in-app setup guide.
+- [x] Ran focused tests (11 passed), syntax checks, a static build, and a local HTTP smoke check.
+- [x] Added fixed noun colors: der blue, feminine die red, das green, plural die yellow; noun articles and word types now appear in Meine Auswahl.
+- [x] Added word types in search suggestions and details, preserving search metadata and distinguishing adjective/verb entries using grammatical evidence.
+- [x] Changed the header to Deutsch and removed B1 from visible interface text. Updated the project guide and agent instructions with the C1+ goal and color convention.
+- [x] After these changes, all 15 tests passed; JavaScript syntax checks and the static build passed.
+- [x] Lowercase noun lookup now checks the capitalized spelling while retaining valid lowercase entries; all 19 tests passed after this search change.
+- [x] Article text alone is colored, with no backgrounds or badges. Meine Auswahl places word types in italic beside words. Removed the color legend and Ausprobieren row, and saved the user's styling preferences in the project guide.
+- [x] Verified the final style/control removal in source; JavaScript syntax check and static build passed. No extra tests were added for this presentation-only refinement.
+- [x] Added eight German-character buttons above search (ä, ö, ü, ß, Ä, Ö, Ü, ẞ), with insertion at the caret/selection, input-length guard, and focus restoration without submitting.
+- [x] After character-button changes, JavaScript syntax check and static build passed; the running preview returned HTTP 200 with all eight buttons in the served HTML. Browser interaction testing was not performed.
+- [x] Added a Wiktionary search link and manual-entry action to missing/error lookup states, plus a manual form available at any time below dictionary results. It preserves drafts across searches and supports word type, noun article/plural, pasted definition, example, and a source-page link.
+- [x] Manual meanings appear in Meine Auswahl with the same article colors and inline italic word types; their manual origin and source are retained in the session JSON download. Blank definitions and unsafe source URLs are rejected. Multiple meanings can be added consecutively.
+- [x] All 23 automated tests passed, including manual noun forms, unknown/non-noun grammar, validation, Unicode search links, and JSON round-trip checks. Browser interaction testing was not performed.
+- [x] JavaScript syntax checks and the static build passed after the manual-entry change. Restarted the stopped local preview; HTML with the manual form/source field and the new JavaScript module both returned HTTP 200. Left the preview running.
+- [x] Fixed malformed option tags that hid Substantiv in Wortart and der in the article dropdown. Renamed the noun option to “Substantiv (Nomen)” and added a hint explaining that it reveals article/plural fields. Static build passed; served HTML returned HTTP 200 with both corrected options and no malformed closing tags. Reviewed the existing noun-field change handler; browser interaction testing was not performed.
+
+## Remaining milestones
+
+Latest progress/editor work (2026-09-07):
+
+- Added new/due meaning counts, separate meaning and grammar stages, per-word due dates, and a round summary listing failed skills once despite repeated attempts. Established means three successful scheduled reviews in succession, not complete mastery.
+- Replaced the grammar-only editor with Wort bearbeiten for headword, POS, definition, example, full noun forms, and available adjective/verb forms. Added cancel, edited provenance and original-definition display. Dictionary selection identity/source and manual IDs survive edits, journal save/load and export/import. Definition edits get a fresh meaning-question key while unchanged grammar progress remains.
+- All 67 tests passed; six new checks cover stable edited identities, journal/export round trips, noun alternatives, stale POS forms, definition/example progress behavior, due boundaries, skill counts and deduplicated round summaries. Syntax checks and static build passed. Real account save/load and phone/browser interaction checks for these additions remain pending.
+- Prepared `.github/workflows/pages.yml` to test/build/publish only dist, and docs/DEPLOYMENT.md for the selected repository and OAuth origin. Workflow was reviewed against official Pages documentation but has not run on GitHub. No tokens or private spreadsheet links were added.
+
+Latest practice and save recovery (2026-09-06–07):
+
+- Added rounds of up to five selected meanings: learning cards, choices or self-assessment, typed recall, and one available grammar dimension per word per round. Saved forms supply questions without dictionary requests. Noun articles retain text-only colors.
+- Meaning/article/plural/adjective/verb dimensions have independent review keys. Due successes advance through 1/3/7/14/30/60 elapsed days; mistakes reset to ten minutes and add one in-round retry. Correct early reviews do not advance due dates; results aggregate once per round/dimension, with any failure preventing promotion.
+- Review events use stable IDs in a separate `LearnGerman_Review_V1` tab in the existing sheet, created with its header in one batch. RAW append/readback, retry deduplication, pending states, same-tab sessionStorage recovery, and separate progress JSON export/import are implemented. OAuth tokens remain in memory only.
+- Reproduced “Ungültige Bedeutung” when progress save unnecessarily parsed an invalid vocabulary payload. Saving now checks only the vocabulary schema header and validates review records independently. Reopening a valid-schema sheet can restore progress even when vocabulary loading fails; invalid meanings now identify their row. No damaged vocabulary is silently skipped or overwritten.
+- Changed “Auch vorzeitig üben” to “Auch noch nicht fällige Wörter üben”; pending counts now say Antworten and explain where to retry/download a backup.
+- All 61 automated tests passed, including malformed-vocabulary progress recovery, scheduling boundaries, grammar rotation, grading, interrupted sessions, missing review tabs, lost create/append responses, concurrent events and duplicate-ID conflicts. Syntax checks and static build passed. Transport tests use invented data and mocked Google APIs; the user's actual 14 answers have not yet been confirmed saved.
+- Browser inventory returned no accessible tabs, so no live page or personal sheet was inspected. Restarted the stopped local server; HTML and the Sheets module returned HTTP 200 with the clearer checkbox label and recovery code. The server remains running.
+
+Latest lookup fix (2026-09-06):
+
+- Confirmed WiktAPI search lists “holen ab”, while its encoded word endpoint returns 404 without Access-Control-Allow-Origin. Browser fetch can consequently surface a network-style error even though the search service works.
+- Added source-verified separated-verb resolution for recognized patterns: selecting or typing “holen ab” opens “abholen” only after its finite active main-clause forms confirm the relationship. The UI explains the change; canonical spelling is used for meaning IDs, grammar, and source links. Unconfirmed phrases retain ordinary lookup/manual fallback.
+- Reworded generic request errors to distinguish possible service/browser-access failures from a diagnosed internet outage; timeouts have their own message.
+- The live check exposed subordinate-clause Präteritum alternatives (ich abholte). Excluded these from the displayed main-clause ich-form; the regression fixture now checks holte ab only.
+- All 46 tests passed, including canonical lookup, direct separated input, false candidates, ordinary holen, cached exact results, cancellation, rate limiting, and browser-access error wording. No browser interaction or personal spreadsheet access was performed.
+- Live resolution confirmed holen ab → abholen with dictionary meanings, Partizip II abgeholt and auxiliary haben. The subordinate-clause correction passed all 46 tests on rerun; syntax checks and the final static build passed. The served dictionary module returned HTTP 200 and the local preview remains running.
+
+Latest grammar work (2026-09-06):
+
+- Adjectives now retain Komparativ/Superlativ, and verbs Präteritum (ich form without pronoun), Partizip II, and Perfekt auxiliary (haben/sein). Only explicitly tagged forms are extracted; declined adjective endings, unrelated tenses, and finite passive/subjunctive forms are filtered.
+- New grammar rows appear in dictionary details and Meine Auswahl. Manual entry has adjective/verb fieldsets; selected words offer a grammar-only editor that preserves their ID, meaning, and source. Edits queue normal pending changes for explicit Sheets save.
+- Optional `grammar` arrays and `grammarSource` persist in meaning JSON. Old records and exports remain compatible with unknown forms; no automatic backfill or migration occurs. Grammar edits retain drafts across selection rerenders and trigger the unload warning.
+- All 41 tests passed: 32 existing tests plus nine focused grammar tests covering source filtering, separable/irregular alternatives, missing forms, manual validation, old records, and journal/export preservation.
+- Live read-only API checks mapped schnell to schneller/am schnellsten and gehen to ging/gegangen/sein. No personal vocabulary or spreadsheet was read or written by the agent. Live Sheets round-trip of the new grammar still needs user validation.
+- Syntax checks and the static build passed. Updated HTML with adjective/verb fieldsets and the grammar module returned HTTP 200; no malformed closing tags were found. The preview remains running. No browser interaction or visual testing was performed.
+
+Latest persistence work (2026-09-06):
+
+- User-reported connection-test success is recorded as user validation, not an independently observed OAuth/readback test.
+- Added new vocabulary-sheet creation, reopening by app-created sheet link, explicit Save and Load controls, pending/success/failure states, and preservation of all selected meaning/grammar/source fields.
+- Added versioned append-only event storage, stable change IDs, raw-cell writes, schema checks, readback confirmation, and retry deduplication. Unrelated device changes merge; the last unique appended operation wins for the same meaning. Journal rows are app-managed and must not be edited/sorted directly.
+- Added undo for the last removal and merge import of existing selection JSON exports. Local drafts/new changes remain pending during network activity and recoverable failures. They remain page-memory only until saved; closing/reloading still requires saving or exporting first.
+- Optional device-local settings remember only the public Client ID and private table link, never OAuth tokens. A link can reopen a sheet already created by this Google app; it cannot authorize arbitrary sheets. This reopen flow still needs a live reload/cross-device check.
+- All 32 tests passed, including event merge, delete/retry behavior, edits during saves, JSON preservation, invalid schemas/source URLs, RAW append, lost-response retry, and readback failures. Transport is mocked; no real user vocabulary was accessed by the agent.
+- Updated the setup guide and README with vocabulary save/reload and GitHub Pages OAuth origin instructions. No cloud configuration or deployment was changed by the agent.
+- Final syntax checks and static build passed. The running server returned HTTP 200 for the updated HTML and library module; save/open/import controls were present, all referenced control IDs existed, and no malformed closing tags were found. No browser interaction or mobile visual check was performed. The local server remains running.
+
+- [ ] M1: validate dictionary behavior and private Sheets browser read/write; select the app stack.
+- [ ] M2: retain current selection/persistence slice; separate library/sets expansion declined. Remaining release checks still apply.
+- [ ] M3: progressive practice implemented; validate live saves and recovery before marking complete.
+- [ ] M4: deploy and verify online daily use across computer and phone.
+- [ ] M5: add and verify offline travel features.
+
+See [PROJECT_PLAN.md](PROJECT_PLAN.md) for each milestone's acceptance checks.
+
+## Verification and limitations
+
+- The original script's lookup approach is now adapted in `web/dictionary.js`; the external file remains unchanged.
+- Live HTTP dictionary probes confirmed separate noun plurals and permissive CORS headers. Encoded-word failures were observed, including an explicit Straße 404 containing the encoded spelling.
+- Read [INTEGRATION_FINDINGS.md](INTEGRATION_FINDINGS.md) for exact observations and verification limits.
+- The 67 automated tests use invented definitions and mocked API transport. Public dictionary grammar was additionally checked live. The user reported Google connection and vocabulary save/load success, then a failed practice save, and later deleted row 5. Personal vocabulary/progress has not been accessed by the agent.
+- Selection persists when explicitly saved to Sheets. Vocabulary drafts are page-memory only. Vocabulary JSON exports restore meanings/grammar; a separate practice JSON export restores review events. Practice rounds/pending results survive same-tab refresh through sessionStorage, but closing the tab requires save/export. Full saved-entry editing is implemented; separate library/sets work, daily-use refinements and offline support are skipped for now.
+- Live checks for Übung and Übungen both returned 404 with the percent-encoded spelling in the service error. The new external Wiktionary/manual-entry flow provides a user-driven fallback; automatic Unicode lookup remains unresolved.
+- Git is available inside Codex; no system Git installation, repository initialization, commit, push, or deployment has occurred.
+- Local preview served HTTP 200. Browser interaction and mobile layout testing have not run.
+- After the user reported the page unreachable, restarted the local preview and confirmed HTTP 200 at `http://localhost:4173/`. Left the server running for the user. This is a temporary local process, not permanent hosting; check its current state rather than assuming it survives a restart.
+- Node is now available at `C:/Program Files/nodejs/node.exe`. The user can run `node scripts/serve.mjs` from the project directory in a regular terminal.
+
+## Next concrete step
+
+Have the user try the progress overview and Wort bearbeiten after saving current changes and refreshing. Apply/save a sample correction and reload to confirm all fields. Prepare radubigu/LearnGerman via the deployment guide when the user can access GitHub; remote actions were blocked by declined browser access and must not be bypassed. Then configure the site's Google origin and test phone/cross-device usage. Leave the deleted-row investigation, daily-use refinement milestone, and offline work out of scope. Dictionary attribution and mobile layout acceptance remain release checks.
+
+Needed during setup: intended GitHub repository, Google Cloud/OAuth configuration, and a private test spreadsheet selected or created through the intended authorization flow. Keep account credentials and private file identifiers out of these documents.
+
+## Handoff maintenance
+
+After meaningful work, update this file with completed behavior, commands/checks actually run, remaining failures or uncertainties, and the next actionable step. Update the plan only when requirements or design decisions change. Do not mark planned behavior as implemented.

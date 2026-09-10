@@ -1,0 +1,9 @@
+dist/
+.local/
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+credentials*.json
+*service-account*.json

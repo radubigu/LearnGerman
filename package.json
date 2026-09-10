@@ -1,0 +1,13 @@
+{
+  "name": "learn-german",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal German vocabulary app — initial dictionary and Sheets integration",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test"
+  }
+}
