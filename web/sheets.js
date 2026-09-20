@@ -3,6 +3,7 @@ import { REVIEW_TAB, REVIEW_HEADER, parseReviews, reviewRows, mergeReviews } fro
 export const FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 export const IMPORT_TAB = 'import_baselist';
 export const IMPORT_HEADER = ['german_word', 'english_meaning', 'status'];
+export const IMPORT_BATCH_SIZE = 50;
 
 export function parseImportBaseList(values) {
   if (!Array.isArray(values) || !Array.isArray(values[0])) throw new Error('Das Tabellenblatt „import_baselist“ ist leer.');
@@ -29,6 +30,17 @@ export function parseImportBaseList(values) {
     added: items.filter(item => item.status === 'added').length,
     skipped: items.filter(item => item.status === 'skipped').length,
     hasStatusHeader: header[2] === IMPORT_HEADER[2],
+  };
+}
+
+export function takeImportBatch(result, limit = IMPORT_BATCH_SIZE) {
+  const pendingTotal = result.pending.length;
+  const pending = result.pending.slice(0, limit);
+  return {
+    ...result,
+    pending,
+    pendingTotal,
+    remainingAfterBatch: pendingTotal - pending.length,
   };
 }
 

@@ -4,6 +4,7 @@ Updated: 2026-09-20.
 
 ## Durable import_baselist queue (2026-09-20)
 
+- Limited each review session to the first 50 open rows in Sheet order. If more rows are open, the load status reports the current batch, total open count and how many remain for a later load. Full-Sheet parsing and row-identity checks remain in place for safe status writes. The focused 55-row regression check, all 84 automated tests, JavaScript syntax checks, static build and `git diff --check` passed.
 - Added connected-Sheet loading for `import_baselist`. The existing `german_word` and `english_meaning` columns are accepted unchanged; a third `status` column is created by the first status write. New app-created vocabulary spreadsheets now include an empty import tab and all three headers.
 - Only blank-status rows enter the review queue. Skipping writes and confirms `skipped` immediately. Completing a Sheet-backed item requires a selected dictionary meaning or a manual meaning; it is shown as pending until **In Google Sheets speichern** confirms the vocabulary journal and then writes and confirms `added`. This avoids hiding unsaved vocabulary on the next visit.
 - Fixed a live-reported early-stop issue: after a successful skip, the import request now recalculates Google controls immediately. Previously the cleared busy state was not reflected in the already-rendered **In Google Sheets speichern** button, leaving it incorrectly disabled even with pending meanings and import markers.

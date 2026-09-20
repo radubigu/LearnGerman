@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSheetsClient, FILE_SCOPE, IMPORT_HEADER, IMPORT_TAB, parseImportBaseList } from '../web/sheets.js';
+import { createSheetsClient, FILE_SCOPE, IMPORT_BATCH_SIZE, IMPORT_HEADER, IMPORT_TAB, parseImportBaseList, takeImportBatch } from '../web/sheets.js';
 import { createLibrary, LIBRARY_HEADER, eventRows } from '../web/library.js';
 import { REVIEW_TAB, REVIEW_HEADER, reviewRows } from '../web/practice.js';
 
@@ -128,6 +128,24 @@ test('import_baselist accepts its original two columns and filters durable statu
   assert.equal(parsed.hasStatusHeader, false);
   assert.throws(() => parseImportBaseList([['german_word', 'english_meaning', 'status'], ['Bank', 'bench', 'done']]), /unbekannter Status/);
   assert.throws(() => parseImportBaseList([['german_word', 'english_meaning'], ['Bank']]), /Zeile 2/);
+});
+
+test('import_baselist review batches contain at most 50 open rows', () => {
+  const values = [
+    ['german_word', 'english_meaning', 'status'],
+    ...Array.from({ length: 55 }, (_, index) => [`Wort ${index + 1}`, `meaning ${index + 1}`, '']),
+    ['Bekannt', 'known', 'skipped'],
+  ];
+  const parsed = parseImportBaseList(values);
+  const batch = takeImportBatch(parsed);
+  assert.equal(IMPORT_BATCH_SIZE, 50);
+  assert.equal(batch.pending.length, 50);
+  assert.equal(batch.pendingTotal, 55);
+  assert.equal(batch.remainingAfterBatch, 5);
+  assert.equal(batch.pending[0].rowNumber, 2);
+  assert.equal(batch.pending[49].rowNumber, 51);
+  assert.equal(batch.skipped, 1);
+  assert.equal(parsed.pending.length, 55);
 });
 
 test('import_baselist status writes add the status header, verify row identity and confirm readback', async () => {

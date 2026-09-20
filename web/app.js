@@ -1,5 +1,5 @@
 import { createDictionary, mapEntries, wordTypeLabel, nounColor } from './dictionary.js';
-import { createSheetsClient } from './sheets.js';
+import { createSheetsClient, takeImportBatch } from './sheets.js';
 import { createManualEntry, wiktionarySearchUrl } from './manual-entry.js';
 import { createLibrary, parseSheetId, validateMeaning, selectionKey } from './library.js';
 import { GRAMMAR_FIELDS } from './grammar.js';
@@ -409,7 +409,10 @@ async function advanceBulk(skip) {
   else openBulkWord(next);
 }
 function importStatusSummary(result) {
-  return `${result.pending.length} offen, ${result.added} hinzugefügt, ${result.skipped} übersprungen.`;
+  const openSummary = result.remainingAfterBatch
+    ? `${result.pending.length} von ${result.pendingTotal} offenen Wörtern für diese Runde geladen; ${result.remainingAfterBatch} bleiben für später`
+    : `${result.pending.length} offen`;
+  return `${openSummary}, ${result.added} hinzugefügt, ${result.skipped} übersprungen.`;
 }
 function applyImportBaseList(result, start = false) {
   const shouldStart = start || startBaseListWhenReady;
@@ -435,7 +438,7 @@ function applyImportBaseList(result, start = false) {
 }
 async function readImportBaseList(start = false) {
   if (!libraryId) throw new Error('Bitte zuerst deine Vokabeltabelle öffnen.');
-  const result = await sheets.readImportBaseList(libraryId);
+  const result = takeImportBatch(await sheets.readImportBaseList(libraryId));
   applyImportBaseList(result, start);
   return result;
 }
