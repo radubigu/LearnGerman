@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSheetsClient, FILE_SCOPE } from '../web/sheets.js';
+import { createSheetsClient, FILE_SCOPE, IMPORT_HEADER, IMPORT_TAB, parseImportBaseList } from '../web/sheets.js';
 import { createLibrary, LIBRARY_HEADER, eventRows } from '../web/library.js';
 import { REVIEW_TAB, REVIEW_HEADER, reviewRows } from '../web/practice.js';
 
@@ -32,6 +32,17 @@ test('Sheets test uses per-file permission, creates only a new file, then verifi
   assert.equal(JSON.stringify(client).includes('invented-test-token'), false);
   client.disconnect();
   await assert.rejects(client.verifyTestSheet(id), /erneut verbinden/);
+});
+test('new vocabulary sheets include an empty import_baselist queue', async () => {
+  googleStub(); let requestBody;
+  const client = createSheetsClient({ fetcher: async (url, options) => {
+    requestBody = JSON.parse(options.body);
+    return { ok: true, status: 200, json: async () => ({ spreadsheetId: 'invented-sheet-id' }) };
+  } });
+  await client.authorize('invented.apps.googleusercontent.com');
+  await client.createLibrarySheet();
+  assert.deepEqual(requestBody.sheets.map(sheet => sheet.properties.title), ['LearnGerman_V1', IMPORT_TAB]);
+  assert.deepEqual(requestBody.sheets[1].data[0].rowData[0].values.map(cell => cell.userEnteredValue.stringValue), IMPORT_HEADER);
 });
 test('expired tokens are not sent and denied scopes prevent requests', async () => {
   googleStub(); let time = 0; let calls = 0;
@@ -101,6 +112,51 @@ test('concurrent additions between pre-read and append are returned, never overw
   await client.authorize('invented.apps.googleusercontent.com');
   const saved = await client.saveLibrary('invented-id', [local]);
   assert.deepEqual(saved.map(event => event.id), ['remote-event', 'local-event']);
+});
+
+test('import_baselist accepts its original two columns and filters durable statuses', () => {
+  const parsed = parseImportBaseList([
+    ['german_word', 'english_meaning'],
+    ['Bank', 'bench'],
+    ['kennen', 'to know', 'SKIPPED'],
+    ['Schloss', 'castle', 'added'],
+    [],
+  ]);
+  assert.deepEqual(parsed.pending, [{ rowNumber: 2, word: 'Bank', englishHint: 'bench', status: '' }]);
+  assert.equal(parsed.skipped, 1);
+  assert.equal(parsed.added, 1);
+  assert.equal(parsed.hasStatusHeader, false);
+  assert.throws(() => parseImportBaseList([['german_word', 'english_meaning', 'status'], ['Bank', 'bench', 'done']]), /unbekannter Status/);
+  assert.throws(() => parseImportBaseList([['german_word', 'english_meaning'], ['Bank']]), /Zeile 2/);
+});
+
+test('import_baselist status writes add the status header, verify row identity and confirm readback', async () => {
+  googleStub();
+  const rows = [['german_word', 'english_meaning'], ['Bank', 'bench'], ['kennen', 'to know', 'skipped']];
+  let writes = 0;
+  const client = createSheetsClient({ fetcher: async (url, request) => {
+    const decoded = decodeURIComponent(url);
+    if (url.endsWith('/values:batchUpdate')) {
+      writes++;
+      const body = JSON.parse(request.body);
+      assert.equal(body.valueInputOption, 'RAW');
+      assert.deepEqual(body.data.map(item => item.range), [`'${IMPORT_TAB}'!C1`, `'${IMPORT_TAB}'!C2`]);
+      rows[0][2] = IMPORT_HEADER[2]; rows[1][2] = 'added';
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    assert.match(decoded, /'import_baselist'!A:C/);
+    return { ok: true, status: 200, json: async () => ({ values: structuredClone(rows) }) };
+  } });
+  await client.authorize('invented.apps.googleusercontent.com');
+  const before = await client.readImportBaseList('invented-id');
+  assert.equal(before.pending.length, 1);
+  const after = await client.saveImportStatuses('invented-id', [{ ...before.pending[0], status: 'added' }]);
+  assert.equal(writes, 1);
+  assert.equal(after.pending.length, 0);
+  assert.equal(after.added, 1);
+  await client.saveImportStatuses('invented-id', [{ rowNumber: 2, word: 'Bank', englishHint: 'bench', status: 'added' }]);
+  assert.equal(writes, 1);
+  await assert.rejects(client.saveImportStatuses('invented-id', [{ rowNumber: 2, word: 'Bankkonto', englishHint: 'bench', status: 'added' }]), /verändert/);
 });
 
 const practiceEvent = { id: 'answer-1', sessionId: 'session-1', questionKey: 'a'.repeat(64), dimension: 'article', mode: 'choice', correct: true, at: 1000 };

@@ -1,6 +1,36 @@
 import { LIBRARY_TAB, LIBRARY_HEADER, parseEvents, eventRows } from './library.js';
 import { REVIEW_TAB, REVIEW_HEADER, parseReviews, reviewRows, mergeReviews } from './practice.js';
 export const FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+export const IMPORT_TAB = 'import_baselist';
+export const IMPORT_HEADER = ['german_word', 'english_meaning', 'status'];
+
+export function parseImportBaseList(values) {
+  if (!Array.isArray(values) || !Array.isArray(values[0])) throw new Error('Das Tabellenblatt „import_baselist“ ist leer.');
+  const header = values[0].map(value => String(value ?? '').trim());
+  if (header[0] !== IMPORT_HEADER[0] || header[1] !== IMPORT_HEADER[1] || (header[2] && header[2] !== IMPORT_HEADER[2])) {
+    throw new Error('„import_baselist“ braucht die Spalten german_word, english_meaning und optional status.');
+  }
+  const items = [];
+  for (let index = 1; index < values.length; index++) {
+    const row = Array.isArray(values[index]) ? values[index] : [];
+    const word = String(row[0] ?? '').trim().normalize('NFC');
+    const englishHint = String(row[1] ?? '').trim().normalize('NFC');
+    const status = String(row[2] ?? '').trim().toLocaleLowerCase('en');
+    if (!word && !englishHint && !status) continue;
+    if (!word || !englishHint) throw new Error(`„import_baselist“, Zeile ${index + 1}: deutsches Wort und englische Bedeutung müssen ausgefüllt sein.`);
+    if (word.length > 150) throw new Error(`„import_baselist“, Zeile ${index + 1}: das deutsche Wort ist länger als 150 Zeichen.`);
+    if (englishHint.length > 1000) throw new Error(`„import_baselist“, Zeile ${index + 1}: die englische Bedeutung ist länger als 1000 Zeichen.`);
+    if (status && !['skipped', 'added'].includes(status)) throw new Error(`„import_baselist“, Zeile ${index + 1}: unbekannter Status „${status}“.`);
+    items.push({ rowNumber: index + 1, word, englishHint, status });
+  }
+  return {
+    items,
+    pending: items.filter(item => !item.status),
+    added: items.filter(item => item.status === 'added').length,
+    skipped: items.filter(item => item.status === 'skipped').length,
+    hasStatusHeader: header[2] === IMPORT_HEADER[2],
+  };
+}
 
 // The token only exists in this module's closure. No token is written to storage.
 export function createSheetsClient({ fetcher = globalThis.fetch, now = Date.now } = {}) {
@@ -68,9 +98,14 @@ export function createSheetsClient({ fetcher = globalThis.fetch, now = Date.now 
   async function createLibrarySheet() {
     const data = await request('', { method: 'POST', body: JSON.stringify({
       properties: { title: 'LearnGerman — Wortschatz' },
-      sheets: [{ properties: { title: LIBRARY_TAB, gridProperties: { frozenRowCount: 1 } }, data: [{ rowData: [
-        { values: LIBRARY_HEADER.map(stringValue => ({ userEnteredValue: { stringValue } })) },
-      ] }] }],
+      sheets: [
+        { properties: { title: LIBRARY_TAB, gridProperties: { frozenRowCount: 1 } }, data: [{ rowData: [
+          { values: LIBRARY_HEADER.map(stringValue => ({ userEnteredValue: { stringValue } })) },
+        ] }] },
+        { properties: { title: IMPORT_TAB, gridProperties: { frozenRowCount: 1 } }, data: [{ rowData: [
+          { values: IMPORT_HEADER.map(stringValue => ({ userEnteredValue: { stringValue } })) },
+        ] }] },
+      ],
     }) });
     if (!/^[\w-]+$/.test(data.spreadsheetId)) throw new Error('Keine gültige Tabellen-ID erhalten. Bitte Google Drive vor einem erneuten Erstellen prüfen.');
     return data.spreadsheetId;
@@ -99,6 +134,59 @@ export function createSheetsClient({ fetcher = globalThis.fetch, now = Date.now 
     const saved = new Set(after.map(event => event.id));
     if (pending.some(event => !saved.has(event.id))) throw new Error('Speicherung noch nicht bestätigt. Bitte erneut speichern.');
     return after;
+  }
+  function importPath(id) {
+    libraryPath(id); // Reuse the strict spreadsheet-ID validation.
+    return `/${id}/values/${encodeURIComponent(`'${IMPORT_TAB}'!A:C`)}`;
+  }
+  async function readImportBaseList(id) {
+    const data = await request(importPath(id));
+    return parseImportBaseList(data.values);
+  }
+  async function saveImportStatuses(id, updates) {
+    if (!Array.isArray(updates) || !updates.length) return readImportBaseList(id);
+    const before = await readImportBaseList(id);
+    const byRow = new Map(before.items.map(item => [item.rowNumber, item]));
+    const normalized = updates.map(update => {
+      const status = String(update.status ?? '').trim().toLocaleLowerCase('en');
+      if (!['skipped', 'added'].includes(status)) throw new Error('Ungültiger Importstatus.');
+      const current = byRow.get(update.rowNumber);
+      if (!current || current.word !== update.word || current.englishHint !== update.englishHint) {
+        throw new Error(`„import_baselist“, Zeile ${update.rowNumber} wurde seit dem Laden verändert. Bitte die Liste neu laden.`);
+      }
+      if (current.status && current.status !== status) {
+        throw new Error(`„import_baselist“, Zeile ${update.rowNumber} ist bereits als ${current.status} markiert.`);
+      }
+      return { ...update, status };
+    });
+    const missing = normalized.filter(update => byRow.get(update.rowNumber).status !== update.status);
+    if (missing.length) {
+      const data = missing.map(update => ({
+        range: `'${IMPORT_TAB}'!C${update.rowNumber}`,
+        majorDimension: 'ROWS',
+        values: [[update.status]],
+      }));
+      if (!before.hasStatusHeader) data.unshift({ range: `'${IMPORT_TAB}'!C1`, majorDimension: 'ROWS', values: [[IMPORT_HEADER[2]]] });
+      let writeError;
+      try {
+        await request(`/${id}/values:batchUpdate`, {
+          method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data }),
+        });
+      } catch (error) { writeError = error; }
+      try {
+        const after = await readImportBaseList(id);
+        const confirmed = new Map(after.items.map(item => [item.rowNumber, item]));
+        if (normalized.some(update => confirmed.get(update.rowNumber)?.status !== update.status)) {
+          if (writeError) throw writeError;
+          throw new Error('Importstatus noch nicht bestätigt. Bitte erneut speichern.');
+        }
+        return after;
+      } catch (error) {
+        if (writeError) throw writeError;
+        throw error;
+      }
+    }
+    return before;
   }
   async function hasReviewTab(id) {
     libraryPath(id); // Validate the identifier before using it in another route.
@@ -151,6 +239,7 @@ export function createSheetsClient({ fetcher = globalThis.fetch, now = Date.now 
     return after;
   }
   return { authorize, disconnect, createTestSheet, verifyTestSheet, createLibrarySheet, readLibrary, saveLibrary,
+    readImportBaseList, saveImportStatuses,
     readReviews, saveReviews, verifyLibrarySchema,
     isConnected: () => Boolean(token && now() < expiresAt) };
 }

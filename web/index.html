@@ -43,8 +43,9 @@
       <section class="lookup panel" aria-labelledby="lookup-title">
         <h2 id="lookup-title">Wörterbuch</h2>
         <details id="bulk-details" class="bulk-import">
-          <summary>Wortliste einfügen oder importieren</summary>
-          <p class="hint">Importiere nur deutsche Wörter oder zwei Spalten mit deutschem Wort und englischer Bedeutung. Der englische Hinweis hilft bei der Auswahl und wird nicht als Vokabel gespeichert.</p>
+          <summary>Wortliste aus Google Sheets oder Datei</summary>
+          <p class="hint">Lade offene Zeilen aus dem Tabellenblatt <strong>import_baselist</strong> oder importiere eine eigene Liste. Der englische Hinweis hilft bei der Auswahl und wird nicht als Vokabel gespeichert.</p>
+          <div class="baselist-import"><button id="load-baselist" type="button" class="secondary" disabled>Offene Wörter aus Google Sheets laden</button><p id="baselist-status" class="hint" role="status" aria-live="polite">Öffne zuerst deine Vokabeltabelle.</p></div>
           <form id="bulk-form">
             <label for="bulk-text">Wörter oder Importzeilen</label><textarea id="bulk-text" rows="5" placeholder="z. B. Entscheidung&#9;decision&#10;Bank&#9;bench"></textarea>
             <label for="bulk-mode">Importformat</label><select id="bulk-mode"><option value="auto">Nur Wörter: Zeilen, Kommas, Semikolons und Tabs</option><option value="lines">Nur Wörter: eine Zeile je Wort</option><option value="columns">Zwei Spalten: Deutsch + Englisch (Tab oder CSV)</option></select>

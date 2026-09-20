@@ -26,6 +26,8 @@ let bulkQueue = [];
 let bulkIndex = -1;
 let parsedWords;
 let activeEnglishHint = '';
+let bulkBusy = false;
+let activeQueueContext = null;
 const node = (tag, text, className) => {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
@@ -144,6 +146,7 @@ function showEnglishHint(englishHint = '') {
 }
 
 function updateSelection() {
+  reconcileImportCandidates();
   $('#count').textContent = selected.size;
   $('#download').disabled = !selected.size;
   $('#selection').replaceChildren();
@@ -181,13 +184,16 @@ function updateSelection() {
   }
   document.querySelectorAll('input[data-key]').forEach(input => { input.checked = selected.has(input.dataset.key); });
   $('#undo-remove').hidden = !undoItem;
+  const pendingImportStatuses = bulkQueue.filter(item => item.statusPending === 'added').length;
   $('#save-status').textContent = library.pending.size
-    ? `${library.pending.size} Änderung(en) noch nicht in Google Sheets gespeichert.`
-    : libraryId ? 'Mit dem zuletzt geladenen Stand abgeglichen.' : 'Verbinde Google Sheets, um deine Auswahl dauerhaft zu speichern.';
+    ? `${library.pending.size} Änderung(en) noch nicht in Google Sheets gespeichert.${pendingImportStatuses ? ` ${pendingImportStatuses} Importmarkierung(en) werden danach als added gespeichert.` : ''}`
+    : pendingImportStatuses
+      ? `${pendingImportStatuses} Importmarkierung(en) noch nicht als added gespeichert.`
+      : libraryId ? 'Mit dem zuletzt geladenen Stand abgeglichen.' : 'Verbinde Google Sheets, um deine Auswahl dauerhaft zu speichern.';
   setLibraryControls();
 }
 
-function renderEntries(word, raw, partsOfSpeech = []) {
+function renderEntries(word, raw, partsOfSpeech = [], queueItem = null) {
   const entries = mapEntries(word, raw, partsOfSpeech);
   const container = $('#entries'); container.replaceChildren();
   if (!entries.length) container.append(node('p', 'Keine Einträge gefunden.'));
@@ -212,6 +218,10 @@ function renderEntries(word, raw, partsOfSpeech = []) {
     if (!entry.senses.length) article.append(node('p', 'Keine ausformulierte Erklärung. Bitte auch die Grundform prüfen.', 'hint'));
     for (const sense of entry.senses) {
       const key = JSON.stringify([word, entry.entryIndex, sense.senseIndex, sense.definition]);
+      if (queueItem) {
+        queueItem.meaningKeys ??= new Set();
+        queueItem.meaningKeys.add(key);
+      }
       const senseRow = node('div', undefined, 'sense-row');
       const meaning = node('div', undefined, 'sense');
       const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.dataset.key = key; checkbox.checked = selected.has(key);
@@ -232,11 +242,12 @@ function renderEntries(word, raw, partsOfSpeech = []) {
     }
     if (entry.baseWords.length) {
       const bases = node('div', 'Grundform: ', 'examples');
-      entry.baseWords.forEach(base => { const button = node('button', base); button.addEventListener('click', () => search(base, activeEnglishHint)); bases.append(button); });
+      entry.baseWords.forEach(base => { const button = node('button', base); button.addEventListener('click', () => search(base, activeEnglishHint, queueItem)); bases.append(button); });
       article.append(bases);
     }
     article.append(link('Original im Wiktionary ↗', entry.source)); container.append(article);
   });
+  if (queueItem) updateSelection();
 }
 
 function manualActions(word) {
@@ -253,19 +264,20 @@ function reportLookupError(error, word) {
   notice.append(node('p', 'Ein fehlender Treffer beweist nicht, dass das Wort falsch ist. Bei Umlauten, ß oder Wortgruppen kann auch der Suchdienst die Ursache sein. Du kannst im Wiktionary nachschlagen und eine Bedeutung hier einfügen.'), manualActions(word));
   $('#entries').replaceChildren(notice);
 }
-async function choose(result, signal) {
+async function choose(result, signal, queueItem = null) {
   status('#search-status', `${result.word} wird geladen …`);
   try {
     const resolved = await dictionary.resolveResult(result, signal);
     if (signal.aborted) return;
-    renderEntries(resolved.word, resolved.entries, resolved.partsOfSpeech);
+    renderEntries(resolved.word, resolved.entries, resolved.partsOfSpeech, queueItem);
     status('#search-status', resolved.resolvedFrom
       ? `„${resolved.resolvedFrom}“ ist eine getrennte Verbform. Grundform: ${resolved.word}. Wähle die passenden Bedeutungen.`
       : `${resolved.word}: Wähle die passenden Bedeutungen.`);
   } catch (error) { if (!signal.aborted) reportLookupError(error, result.word); }
 }
-async function search(query, englishHint = '') {
+async function search(query, englishHint = '', queueItem = null) {
   controller?.abort(); controller = new AbortController(); const signal = controller.signal;
+  activeQueueContext = queueItem;
   showEnglishHint(englishHint);
   $('#query').value = query;
   $('#suggestions').replaceChildren(); $('#entries').replaceChildren(node('p', 'Wörterbuch wird durchsucht …', 'selection-empty'));
@@ -277,12 +289,12 @@ async function search(query, englishHint = '') {
       const button = node('button', undefined, 'suggestion');
       button.append(node('span', result.word), node('span', wordTypeLabel(result.partsOfSpeech), 'suggestion-type'));
       button.addEventListener('click', () => {
-        controller?.abort(); controller = new AbortController(); choose(result, controller.signal);
+        controller?.abort(); controller = new AbortController(); choose(result, controller.signal, queueItem);
       });
       $('#suggestions').append(button);
     }
     const exact = results.find(result => result.entries);
-    if (exact) await choose(exact, signal);
+    if (exact) await choose(exact, signal, queueItem);
     else {
       status('#search-status', results.length ? `${results.length} Treffer. Bitte ein Wort auswählen.` : 'In diesem Wörterbuch nicht gefunden.');
       $('#entries').replaceChildren(node('p', 'Wähle einen Treffer, versuche die Grundform oder füge eine Bedeutung manuell hinzu.', 'selection-empty'), manualActions(query));
@@ -297,26 +309,35 @@ function renderBulkQueue() {
   const active = bulkQueue[bulkIndex];
   const finished = bulkQueue.filter(item => item.state === 'done').length;
   const skipped = bulkQueue.filter(item => item.state === 'skipped').length;
+  const pendingAdded = bulkQueue.filter(item => item.statusPending === 'added').length;
   $('#bulk-review').hidden = !bulkQueue.length;
   $('#bulk-bottom-actions').hidden = !active;
-  $('#bulk-next').disabled = !active;
-  $('#bulk-skip').disabled = !active;
+  $('#bulk-next').disabled = !active || bulkBusy;
+  $('#bulk-skip').disabled = !active || bulkBusy;
+  $('#bulk-bottom-next').disabled = !active || bulkBusy;
+  $('#bulk-bottom-skip').disabled = !active || bulkBusy;
   $('#bulk-review-status').textContent = active
     ? `Wort ${bulkIndex + 1} von ${bulkQueue.length}: „${active.word}“. Wähle eine oder mehrere Bedeutungen und gehe dann weiter. ${finished} durchgesehen, ${skipped} übersprungen.`
-    : `Liste durchgesehen: ${finished} durchgesehen, ${skipped} übersprungen. Ausgewählte Bedeutungen in „Meine Auswahl“ speichern.`;
+    : bulkQueue.some(item => item.state === 'open')
+      ? `${bulkQueue.filter(item => item.state === 'open').length} Wörter sind offen. Wähle ein Wort aus der Liste.`
+      : `Liste durchgesehen: ${finished} durchgesehen, ${skipped} übersprungen${pendingAdded ? `, ${pendingAdded} als added vorgemerkt` : ''}. Ausgewählte Bedeutungen in „Meine Auswahl“ speichern.`;
   $('#bulk-bottom-status').textContent = active ? `Listenwort ${bulkIndex + 1} von ${bulkQueue.length}: ${active.word}` : '';
   const list = $('#bulk-queue'); list.replaceChildren();
   bulkQueue.forEach((item, index) => {
     const row = node('li');
     if (index === bulkIndex) row.classList.add('current');
-    if (item.state === 'done') row.classList.add('done');
-    if (item.state === 'skipped') row.classList.add('skipped');
+    if (item.state === 'done' || item.status === 'added' || item.statusPending === 'added') row.classList.add('done');
+    if (item.state === 'skipped' || item.status === 'skipped') row.classList.add('skipped');
     const button = node('button', item.word); button.type = 'button';
+    const stateLabel = item.status === 'added' ? 'hinzugefügt'
+      : item.status === 'skipped' || item.state === 'skipped' ? 'übersprungen'
+        : item.statusPending === 'added' ? 'zum Speichern ausgewählt'
+          : index === bulkIndex ? 'aktuell' : item.state === 'done' ? 'durchgesehen' : 'offen';
+    button.setAttribute('aria-label', `${item.word}, ${stateLabel}`);
     if (index === bulkIndex) button.setAttribute('aria-current', 'step');
     button.addEventListener('click', () => openBulkWord(index));
     row.append(button);
     if (item.englishHint) row.append(document.createTextNode(' — '), node('span', item.englishHint, 'queue-hint'));
-    row.append(node('span', item.state === 'done' ? 'durchgesehen' : item.state === 'skipped' ? 'übersprungen' : index === bulkIndex ? 'aktuell' : 'offen', 'queue-state'));
     list.append(row);
   });
 }
@@ -332,16 +353,88 @@ function openBulkWord(index) {
     status('#manual-status', '');
   } else status('#manual-status', 'Dein offener manueller Entwurf bleibt erhalten. Prüfe vor dem Hinzufügen das Feld „Wort / Grundform“.');
   renderBulkQueue();
-  search(word, englishHint);
+  search(word, englishHint, bulkQueue[index]);
   $('#search-form').scrollIntoView({ block: 'start' });
 }
-function advanceBulk(skip) {
-  if (bulkIndex < 0) return;
-  bulkQueue[bulkIndex].state = skip ? 'skipped' : 'done';
+function itemHasSelectedMeaning(item) {
+  return [...(item.meaningKeys ?? [])].some(key => selected.has(key));
+}
+function reconcileImportCandidates() {
+  for (const item of bulkQueue) {
+    if (item.source !== 'sheet' || item.status) continue;
+    if (itemHasSelectedMeaning(item)) item.statusPending = 'added';
+    else if (item.statusPending === 'added') {
+      delete item.statusPending;
+      if (item.state === 'done') item.state = 'open';
+    }
+  }
+}
+async function advanceBulk(skip) {
+  if (bulkIndex < 0 || bulkBusy) return;
+  const item = bulkQueue[bulkIndex];
+  if (item.source === 'sheet' && !skip && !itemHasSelectedMeaning(item)) {
+    status('#baselist-status', 'Wähle oder erstelle zuerst mindestens eine Bedeutung. Wenn du das Wort bereits kennst, verwende „Überspringen“.', true);
+    return;
+  }
+  if (item.source === 'sheet' && skip && itemHasSelectedMeaning(item)) {
+    status('#baselist-status', 'Für dieses Wort ist eine Bedeutung ausgewählt. Verwende „Fertig, nächstes Wort“ oder entferne die Auswahl, bevor du es überspringst.', true);
+    return;
+  }
+  if (item.source === 'sheet' && skip) {
+    if (!libraryId || !sheets.isConnected()) {
+      status('#baselist-status', 'Bitte Google erneut verbinden und die Vokabeltabelle öffnen.', true);
+      return;
+    }
+    bulkBusy = true; renderBulkQueue(); setLibraryControls();
+    try {
+      await sheets.saveImportStatuses(libraryId, [{ ...item, status: 'skipped' }]);
+      item.status = 'skipped';
+      status('#baselist-status', `„${item.word}“ wurde als skipped markiert.`);
+    } catch (error) {
+      status('#baselist-status', error.message, true);
+      bulkBusy = false; renderBulkQueue(); setLibraryControls();
+      return;
+    }
+    bulkBusy = false;
+    setLibraryControls();
+  }
+  item.state = skip ? 'skipped' : 'done';
+  if (item.source === 'sheet' && !skip) {
+    status('#baselist-status', `„${item.word}“ wird als added markiert, sobald die Auswahl in Google Sheets gespeichert ist.`);
+  }
   const next = [...bulkQueue.keys()].find(index => index > bulkIndex && bulkQueue[index].state === 'open')
     ?? bulkQueue.findIndex(item => item.state === 'open');
   if (next < 0) { bulkIndex = -1; renderBulkQueue(); $('#bulk-details').scrollIntoView({ block: 'start' }); }
   else openBulkWord(next);
+}
+function importStatusSummary(result) {
+  return `${result.pending.length} offen, ${result.added} hinzugefügt, ${result.skipped} übersprungen.`;
+}
+function applyImportBaseList(result, start = false) {
+  const current = bulkQueue[bulkIndex];
+  const prior = new Map(bulkQueue.filter(item => item.source === 'sheet').map(item => [item.rowNumber, item]));
+  const manualItems = bulkQueue.filter(item => item.source !== 'sheet');
+  const sheetItems = result.pending.map(item => {
+    const existing = prior.get(item.rowNumber);
+    return existing && existing.word === item.word && existing.englishHint === item.englishHint
+      ? { ...item, source: 'sheet', state: existing.state, meaningKeys: existing.meaningKeys, statusPending: existing.statusPending }
+      : { ...item, source: 'sheet', state: 'open', meaningKeys: new Set() };
+  });
+  for (const existing of prior.values()) {
+    if (existing.statusPending && !sheetItems.some(item => item.rowNumber === existing.rowNumber)) sheetItems.push(existing);
+  }
+  bulkQueue = [...manualItems, ...sheetItems];
+  bulkIndex = current ? bulkQueue.findIndex(item => item === current || (item.source === current.source && item.rowNumber === current.rowNumber)) : -1;
+  if (bulkIndex < 0 && start) bulkIndex = bulkQueue.findIndex(item => item.state === 'open');
+  renderBulkQueue();
+  if (start && bulkIndex >= 0) openBulkWord(bulkIndex);
+  status('#baselist-status', `import_baselist geladen: ${importStatusSummary(result)}`);
+}
+async function readImportBaseList(start = false) {
+  if (!libraryId) throw new Error('Bitte zuerst deine Vokabeltabelle öffnen.');
+  const result = await sheets.readImportBaseList(libraryId);
+  applyImportBaseList(result, start);
+  return result;
 }
 function clearBulkPreview() {
   parsedWords = undefined;
@@ -420,6 +513,11 @@ $('#manual-form').addEventListener('submit', event => {
   try {
     const entry = createManualEntry(Object.fromEntries(new FormData(event.currentTarget)));
     library.put(entry);
+    const activeQueueItem = activeQueueContext;
+    if (activeQueueItem) {
+      activeQueueItem.meaningKeys ??= new Set();
+      activeQueueItem.meaningKeys.add(selectionKey(entry));
+    }
     updateSelection();
     $('#manual-definition').value = ''; $('#manual-example').value = ''; manualDirty = false;
     status('#manual-status', `${entry.word}: zur Auswahl hinzugefügt. Zum Aufbewahren in Google Sheets speichern. Du kannst eine weitere Bedeutung ergänzen.`);
@@ -494,7 +592,9 @@ function setLibraryControls() {
   $('#create-library').disabled = googleBusy || !connected || Boolean(libraryId);
   $('#open-library').disabled = googleBusy || !connected;
   $('#load-library').disabled = googleBusy || !connected || !libraryId;
-  $('#save-library').disabled = googleBusy || !connected || !libraryId || !library.pending.size;
+  const pendingImportStatuses = bulkQueue.some(item => item.statusPending === 'added');
+  $('#save-library').disabled = googleBusy || bulkBusy || !connected || !libraryId || (!library.pending.size && !pendingImportStatuses);
+  $('#load-baselist').disabled = googleBusy || bulkBusy || !connected || !libraryId;
   $('#library-url').disabled = googleBusy;
   $('#client-id').disabled = googleBusy;
   practice?.refresh();
@@ -519,6 +619,9 @@ function showLibrary(id) {
   $('#library-link').replaceChildren(link('Meine Vokabeltabelle öffnen ↗', url));
   rememberConnection();
 }
+$('#load-baselist').addEventListener('click', () => libraryAction('Importliste wird geladen …', async () => {
+  await readImportBaseList(true);
+}));
 async function libraryAction(message, action) {
   if (googleBusy) return;
   googleBusy = true; $('#connect').disabled = true;
@@ -536,6 +639,7 @@ $('#create-library').addEventListener('click', () => libraryAction('Vokabeltabel
   showLibrary(id);
   library.accept(await sheets.readLibrary(id));
   practice.setSheet(id, await sheets.readReviews(id));
+  try { await readImportBaseList(); } catch (error) { status('#baselist-status', error.message, true); }
   status('#library-status', 'Vokabeltabelle erstellt. Klicke jetzt auf „In Google Sheets speichern“, um deine Auswahl zu speichern.');
 }));
 $('#open-library').addEventListener('click', () => libraryAction('Vokabeltabelle wird geöffnet …', async () => {
@@ -553,16 +657,41 @@ $('#open-library').addEventListener('click', () => libraryAction('Vokabeltabelle
   }
   library.accept(events); showLibrary(id);
   practice.setSheet(id, await sheets.readReviews(id));
+  try { await readImportBaseList(); } catch (error) { status('#baselist-status', error.message, true); }
   status('#library-status', 'Tabelle geladen. Noch ungespeicherte lokale Änderungen wurden beibehalten.');
 }));
 $('#load-library').addEventListener('click', () => libraryAction('Gespeicherte Auswahl wird geladen …', async () => {
   library.accept(await sheets.readLibrary(libraryId));
   practice.setSheet(libraryId, await sheets.readReviews(libraryId));
+  try { await readImportBaseList(); } catch (error) { status('#baselist-status', error.message, true); }
   status('#library-status', 'Aktueller Tabellenstand geladen. Lokale Änderungen bleiben zum Speichern vorgemerkt.');
 }));
 $('#save-library').addEventListener('click', () => libraryAction('Auswahl wird gespeichert und geprüft …', async () => {
+  const pendingItems = bulkQueue.filter(item => item.statusPending === 'added');
+  const invalid = pendingItems.filter(item => !itemHasSelectedMeaning(item));
+  for (const item of invalid) { delete item.statusPending; item.state = 'open'; }
+  if (invalid.length) {
+    renderBulkQueue();
+    throw new Error('Mindestens eine Importbedeutung wurde vor dem Speichern wieder entfernt. Das Wort bleibt in import_baselist offen.');
+  }
   const changes = [...library.pending.values()];
-  library.accept(await sheets.saveLibrary(libraryId, changes));
+  if (changes.length) library.accept(await sheets.saveLibrary(libraryId, changes));
+  const validItems = pendingItems.filter(item => itemHasSelectedMeaning(item));
+  if (validItems.length) {
+    await sheets.saveImportStatuses(libraryId, validItems.map(item => ({ ...item, status: 'added' })));
+    const completedCurrent = validItems.includes(bulkQueue[bulkIndex]);
+    for (const item of validItems) {
+      delete item.statusPending;
+      item.status = 'added';
+      item.state = 'done';
+    }
+    if (completedCurrent) {
+      bulkIndex = -1;
+      activeQueueContext = null;
+    }
+    renderBulkQueue();
+    status('#baselist-status', `${validItems.length} ${validItems.length === 1 ? 'Zeile wurde' : 'Zeilen wurden'} als added markiert.`);
+  }
   status('#library-status', library.pending.size ? 'Gespeichert. Inzwischen hinzugefügte Änderungen bitte ebenfalls speichern.' : 'Gespeichert und aus Google Sheets zurückgelesen.');
 }));
 $('#connect').addEventListener('click', async () => {

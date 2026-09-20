@@ -2,6 +2,16 @@
 
 Updated: 2026-09-20.
 
+## Durable import_baselist queue (2026-09-20)
+
+- Added connected-Sheet loading for `import_baselist`. The existing `german_word` and `english_meaning` columns are accepted unchanged; a third `status` column is created by the first status write. New app-created vocabulary spreadsheets now include an empty import tab and all three headers.
+- Only blank-status rows enter the review queue. Skipping writes and confirms `skipped` immediately. Completing a Sheet-backed item requires a selected dictionary meaning or a manual meaning; it is shown as pending until **In Google Sheets speichern** confirms the vocabulary journal and then writes and confirms `added`. This avoids hiding unsaved vocabulary on the next visit.
+- Fixed a live-reported early-stop issue: after a successful skip, the import request now recalculates Google controls immediately. Previously the cleared busy state was not reflected in the already-rendered **In Google Sheets speichern** button, leaving it incorrectly disabled even with pending meanings and import markers.
+- Removed the second early-stop dependency: selecting an existing dictionary meaning or adding one manually now queues the active baselist row for `added` immediately. Saving persists that row even when **Fertig, nächstes Wort** was never pressed; that control now only advances the review queue. Removing the selected meaning before saving removes the pending marker again.
+- Simplified the queue at the user's request: visible `added`, `offen`, `skipped` and related state suffixes were removed from each word row. Open words remain blue, selected/completed words are green, and skipped words are muted; the same state text remains available through accessible button labels.
+- Status updates re-read the source and verify row number, German word, and English meaning before writing. A moved or edited row fails visibly instead of marking a different word. Idempotent retries do not issue a duplicate write, and already `skipped`/`added` rows stay out of future loads.
+- Local verification passed: 83 tests with single-process isolation, JavaScript syntax checks, the clean static build, a root HTTP smoke check for the new UI/transport, and `git diff --check`. The focused tests cover original two-column parsing, invalid rows/statuses, status-header creation, raw batch updates, row-identity protection, readback, and the new-sheet schema. No private spreadsheet or Google account was accessed, so the live OAuth/status round trip remains to be tested.
+
 ## Four-section app promoted to the default (2026-09-20)
 
 - Replaced the root entry page with the accepted four-section interface: Üben, Wörter hinzufügen, Meine Wörter, and Einstellungen. Removed the former single-page interface and the separate `/v2/` copy instead of maintaining a redirect or duplicate app.
@@ -19,6 +29,7 @@ Updated: 2026-09-20.
 
 ## English import hints and DeepL checks (2026-09-19)
 
+- Fixed DeepL prefill truncation for definitions containing `/`, reported with `zum prüfenden/beurteilenden Betrachten`. DeepL treats an encoded ASCII slash as a fragment-route separator, so the outbound translator URL now substitutes the visually equivalent full-width slash while leaving the displayed and saved German definition unchanged. A live DeepL check confirmed that both alternatives were prefilled and translated; focused regression coverage records the exact encoded URL.
 - Added an explicit two-column word-list mode for tab-separated or quoted CSV input: German word plus English meaning. Both values appear in preview and queue, and the English meaning is shown above dictionary results while that imported word is reviewed.
 - The English text stays in the page-memory queue only. It is not added to ordinary single-word searches, selected meaning records, Google Sheets, JSON vocabulary exports or practice.
 - Every returned dictionary definition now has a compact **EN** action immediately before its meaning checkbox. It opens DeepL with German as the source and English as the target; the full purpose remains available as an accessible label and tooltip. The app does not add an API key, call a paid translation API or store the result.
@@ -193,7 +204,7 @@ See [PROJECT_PLAN.md](PROJECT_PLAN.md) for each milestone's acceptance checks.
 
 ## Next concrete step
 
-After publishing and checking the default root app, design and implement the documented read-only **Kennenlernen** flow in Üben, including the 10/20/30 selector, random sampling, browsing navigation and explicit separation from practice progress. Verify that completing or leaving such a round creates no pending review answers and changes no overview count. Retain the existing live save/reload and practice-recovery checks, Google origin configuration, and phone/cross-device validation. Leave the deleted-row investigation, declined daily-use refinements and offline work out of scope.
+First run a live private-Sheet check of `import_baselist`: load an original two-column row, confirm skip writes `skipped`, then select and save a different row and confirm it becomes `added` only after the vocabulary meaning is readable from the journal. Reload and confirm neither completed row returns. After that, continue with the documented read-only **Kennenlernen** flow in Üben, including the 10/20/30 selector, random sampling, browsing navigation and explicit separation from practice progress. Retain the existing practice-recovery, Google-origin, phone and cross-device checks. Leave the deleted-row investigation, declined daily-use refinements and offline work out of scope.
 
 Needed during setup: intended GitHub repository, Google Cloud/OAuth configuration, and a private test spreadsheet selected or created through the intended authorization flow. Keep account credentials and private file identifiers out of these documents.
 
