@@ -28,6 +28,7 @@ let parsedWords;
 let activeEnglishHint = '';
 let bulkBusy = false;
 let activeQueueContext = null;
+let startBaseListWhenReady = false;
 const node = (tag, text, className) => {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
@@ -411,6 +412,8 @@ function importStatusSummary(result) {
   return `${result.pending.length} offen, ${result.added} hinzugefügt, ${result.skipped} übersprungen.`;
 }
 function applyImportBaseList(result, start = false) {
+  const shouldStart = start || startBaseListWhenReady;
+  startBaseListWhenReady = false;
   const current = bulkQueue[bulkIndex];
   const prior = new Map(bulkQueue.filter(item => item.source === 'sheet').map(item => [item.rowNumber, item]));
   const manualItems = bulkQueue.filter(item => item.source !== 'sheet');
@@ -425,9 +428,9 @@ function applyImportBaseList(result, start = false) {
   }
   bulkQueue = [...manualItems, ...sheetItems];
   bulkIndex = current ? bulkQueue.findIndex(item => item === current || (item.source === current.source && item.rowNumber === current.rowNumber)) : -1;
-  if (bulkIndex < 0 && start) bulkIndex = bulkQueue.findIndex(item => item.state === 'open');
+  if (bulkIndex < 0 && shouldStart) bulkIndex = bulkQueue.findIndex(item => item.state === 'open');
   renderBulkQueue();
-  if (start && bulkIndex >= 0) openBulkWord(bulkIndex);
+  if (shouldStart && bulkIndex >= 0) openBulkWord(bulkIndex);
   status('#baselist-status', `import_baselist geladen: ${importStatusSummary(result)}`);
 }
 async function readImportBaseList(start = false) {
@@ -594,7 +597,10 @@ function setLibraryControls() {
   $('#load-library').disabled = googleBusy || !connected || !libraryId;
   const pendingImportStatuses = bulkQueue.some(item => item.statusPending === 'added');
   $('#save-library').disabled = googleBusy || bulkBusy || !connected || !libraryId || (!library.pending.size && !pendingImportStatuses);
-  $('#load-baselist').disabled = googleBusy || bulkBusy || !connected || !libraryId;
+  // Keep this touch target available once the Sheet itself is known. On a
+  // slower phone, review/import reads may still be finishing in the background;
+  // the click handler queues the requested start instead of appearing broken.
+  $('#load-baselist').disabled = bulkBusy || !libraryId;
   $('#library-url').disabled = googleBusy;
   $('#client-id').disabled = googleBusy;
   practice?.refresh();
@@ -618,10 +624,25 @@ function showLibrary(id) {
   $('#library-url').value = url;
   $('#library-link').replaceChildren(link('Meine Vokabeltabelle öffnen ↗', url));
   rememberConnection();
+  setLibraryControls();
 }
-$('#load-baselist').addEventListener('click', () => libraryAction('Importliste wird geladen …', async () => {
-  await readImportBaseList(true);
-}));
+$('#load-baselist').addEventListener('click', () => {
+  const openIndex = bulkQueue.findIndex(item => item.source === 'sheet' && item.state === 'open');
+  if (openIndex >= 0) {
+    openBulkWord(openIndex);
+    return;
+  }
+  if (googleBusy) {
+    startBaseListWhenReady = true;
+    status('#baselist-status', 'Die Tabelle wird noch fertig geladen. Die Wortliste startet danach automatisch.');
+    return;
+  }
+  if (!sheets.isConnected()) {
+    status('#baselist-status', 'Bitte Google erneut verbinden und die Vokabeltabelle öffnen.', true);
+    return;
+  }
+  libraryAction('Importliste wird geladen …', async () => { await readImportBaseList(true); });
+});
 async function libraryAction(message, action) {
   if (googleBusy) return;
   googleBusy = true; $('#connect').disabled = true;
