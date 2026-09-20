@@ -5,22 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Deutsche Wörter nachschlagen, Bedeutungen auswählen und Artikel und Plural vergleichen.">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <title>LearnGerman · Wörter entdecken</title>
+  <title>Deutsch</title>
   <link rel="stylesheet" href="styles.css">
-  <script type="module" src="app.js"></script>
+  <link rel="stylesheet" href="navigation.css">
+  <script type="module" src="navigation.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Zum Inhalt</a>
   <header class="topbar"><a class="brand" href="./"><span class="brand-mark">W</span>LearnGerman</a><span class="edition">DEUTSCH</span></header>
+  <nav class="v2-nav" aria-label="Hauptbereiche">
+    <button type="button" data-view="practice" aria-current="page">Üben</button>
+    <button type="button" data-view="add">Wörter hinzufügen</button>
+    <button type="button" data-view="words">Meine Wörter <span id="v2-word-count" aria-hidden="true">0</span></button>
+    <button type="button" data-view="settings">Einstellungen</button>
+  </nav>
   <main id="main">
-    <div class="heading"><div><p class="eyebrow">DEIN WORTSCHATZ</p><h1>Wörter entdecken.</h1><p>Finde die Bedeutung, die du lernen möchtest.</p></div><span class="stage">Erster Prototyp</span></div>
+    <div class="heading v2-heading"><div><p class="eyebrow" id="v2-eyebrow">DEIN WORTSCHATZ</p><h1 id="v2-title" tabindex="-1">Üben</h1><p id="v2-description">Wiederhole die Bedeutungen und Formen aus deiner Auswahl.</p></div></div>
     <section id="practice-panel" class="panel practice-panel" aria-labelledby="practice-title">
-      <div class="section-row"><h2 id="practice-title">Üben</h2><span class="practice-duration">Kurze Runden · bis zu 5 Wörter</span></div>
+      <div class="section-row"><h2 id="practice-title">Deine nächste Übung</h2><span class="practice-duration">Kurze Runden · bis zu 5 Wörter</span></div>
       <p id="practice-help" class="hint">Öffne deine Vokabeltabelle, um mit deiner Auswahl zu üben.</p>
+      <div id="v2-practice-guidance" class="v2-guidance" hidden><button type="button" class="secondary" data-go="settings">Einstellungen öffnen</button></div>
       <div id="practice-overview" aria-live="polite"></div>
       <div id="practice-start-controls" class="actions">
         <button id="start-practice" disabled>Übung starten</button><button id="resume-practice" class="secondary" hidden>Runde fortsetzen</button>
-        <details class="practice-options-menu"><summary>Übungsoptionen</summary><label class="remember-option"><input id="practice-force" type="checkbox"> Auch noch nicht fällige Wörter üben</label></details>
+        <details class="practice-options-menu"><summary>Übungsoptionen</summary><label for="practice-new-target">Neue Bedeutungen pro Lerntag</label><select id="practice-new-target"><option value="5">5 · ruhig</option><option value="10" selected>10 · empfohlen</option><option value="15">15 · intensiv</option></select><label class="remember-option"><input id="practice-force" type="checkbox"> Nach fälligen Aufgaben auch vorzeitig üben</label><label class="remember-option"><input id="practice-plurals" type="checkbox"> Pluralformen üben</label></details>
       </div>
       <p id="practice-status" role="status" aria-live="polite"></p>
       <div id="practice-content"></div>
@@ -33,7 +41,20 @@
     </section>
     <div id="vocabulary-workspace" class="workspace">
       <section class="lookup panel" aria-labelledby="lookup-title">
-        <h2 id="lookup-title">Im Wörterbuch suchen</h2>
+        <h2 id="lookup-title">Wörterbuch</h2>
+        <details id="bulk-details" class="bulk-import">
+          <summary>Wortliste einfügen oder importieren</summary>
+          <p class="hint">Importiere nur deutsche Wörter oder zwei Spalten mit deutschem Wort und englischer Bedeutung. Der englische Hinweis hilft bei der Auswahl und wird nicht als Vokabel gespeichert.</p>
+          <form id="bulk-form">
+            <label for="bulk-text">Wörter oder Importzeilen</label><textarea id="bulk-text" rows="5" placeholder="z. B. Entscheidung&#9;decision&#10;Bank&#9;bench"></textarea>
+            <label for="bulk-mode">Importformat</label><select id="bulk-mode"><option value="auto">Nur Wörter: Zeilen, Kommas, Semikolons und Tabs</option><option value="lines">Nur Wörter: eine Zeile je Wort</option><option value="columns">Zwei Spalten: Deutsch + Englisch (Tab oder CSV)</option></select>
+            <label for="bulk-file" class="import-label">Oder Text-, CSV- oder TSV-Datei wählen</label><input id="bulk-file" type="file" accept=".txt,.csv,.tsv,text/plain,text/csv,text/tab-separated-values">
+            <button type="submit" class="secondary">Liste prüfen</button>
+          </form>
+          <p id="bulk-parse-status" role="status" aria-live="polite"></p>
+          <div id="bulk-preview" hidden><p id="bulk-preview-count"></p><ol id="bulk-preview-list"></ol><button id="bulk-add" type="button">Wörter durchgehen</button></div>
+          <div id="bulk-review" hidden><p id="bulk-review-status" role="status" aria-live="polite"></p><ol id="bulk-queue"></ol><div class="actions"><button id="bulk-next" type="button" class="secondary">Fertig, nächstes Wort</button><button id="bulk-skip" type="button" class="text-button">Überspringen</button></div></div>
+        </details>
         <div class="character-bar" role="group" aria-label="Deutsche Zeichen einfügen">
           <span class="character-label">Deutsche Zeichen</span>
           <button type="button" data-character="ä" aria-label="ä einfügen" aria-controls="query">ä</button>
@@ -48,8 +69,10 @@
         <form id="search-form"><label for="query">Wort oder Wortanfang</label><div class="search-row"><input id="query" name="query" placeholder="z. B. Entscheidung" required maxlength="150" autocomplete="off" spellcheck="false"><button type="submit">Suchen <span aria-hidden="true">→</span></button></div></form>
         <p class="hint">Deutsche Erklärungen · Artikel · Plural</p>
         <p id="search-status" role="status" aria-live="polite"></p>
+        <aside id="import-meaning-hint" class="import-meaning-hint" hidden aria-live="polite"></aside>
         <div id="suggestions" class="suggestions" aria-label="Suchergebnisse"></div>
         <div id="entries" class="entries"><div class="empty"><span class="empty-letter" aria-hidden="true">Aa</span><h3>Ein Wort. Seine Bedeutungen.</h3><p>Suche ein Wort und wähle einen Treffer.<br>Danach kannst du passende Bedeutungen sammeln.</p></div></div>
+        <div id="v2-add-selection" class="v2-guidance v2-add-selection" hidden><span id="v2-add-count"></span><button type="button" class="secondary" data-go="words">Meine Wörter ansehen</button></div>
         <details id="manual-details" class="manual-entry">
           <summary>Bedeutung manuell hinzufügen</summary>
           <p class="hint">Schlage das Wort im Wiktionary nach, kopiere eine passende Bedeutung und füge sie hier ein. Du kannst auch eine eigene Erklärung schreiben.</p>
@@ -72,20 +95,22 @@
             <p id="manual-status" role="status" aria-live="polite"></p>
           </form>
         </details>
+        <div id="bulk-bottom-actions" class="bulk-bottom-actions" hidden><p id="bulk-bottom-status"></p><div class="actions"><button id="bulk-bottom-next" type="button" class="secondary">Fertig, nächstes Wort</button><button id="bulk-bottom-skip" type="button" class="text-button">Überspringen</button></div></div>
       </section>
-      <aside class="collection panel" aria-labelledby="collection-title">
+      <section class="collection panel" aria-labelledby="collection-title">
         <div class="section-row"><h2 id="collection-title">Meine Auswahl</h2><span id="count" class="count">0</span></div>
         <p id="save-status" class="hint" role="status" aria-live="polite">Verbinde Google Sheets, um deine Auswahl dauerhaft zu speichern.</p>
-        <div class="actions"><button id="save-library" disabled>In Google Sheets speichern</button><button id="load-library" class="secondary" disabled>Gespeicherte Auswahl laden</button></div>
+        <div id="v2-library-actions" class="actions"><button id="save-library" disabled>In Google Sheets speichern</button><button id="load-library" class="secondary" disabled>Gespeicherte Auswahl laden</button></div>
         <p id="library-status" role="status" aria-live="polite"></p>
         <button id="undo-remove" class="text-button" hidden>Letztes Entfernen rückgängig</button>
+        <div id="v2-words-empty" class="v2-empty" hidden><p>Deine Auswahl ist noch leer. Suche ein Wort oder füge eine Wortliste ein.</p><div class="actions"><button type="button" data-go="add">Wörter hinzufügen</button><button id="v2-words-connect" type="button" class="secondary" data-go="settings">Google Sheets verbinden</button></div></div>
         <div id="selection"></div><button id="download" class="secondary full" disabled>Auswahl herunterladen</button>
         <label for="import-selection" class="import-label">Auswahl aus Datei ergänzen</label><input id="import-selection" type="file" accept=".json,application/json"><p id="import-status" class="hint" role="status"></p>
-        <p class="hint">Speichere Änderungen vor dem Schließen. Auf einem anderen Gerät: Google verbinden, dieselbe Tabelle öffnen und laden.</p>
-      </aside>
+        <p id="v2-list-hint" class="hint">Speichere Änderungen vor dem Schließen. Auf einem anderen Gerät: Google verbinden, dieselbe Tabelle öffnen und laden.</p>
+      </section>
     </div>
-    <section class="panel connection" aria-labelledby="connection-title"><details id="connection-details"><summary id="connection-title">Google Sheets verbinden <span>Privater Wortschatz</span></summary><div class="connection-body">
-      <p>Verbinde dein Google-Konto und öffne die Vokabeltabelle, die du mit LearnGerman erstellt hast. Beim ersten Mal erstellst du hier eine neue, separate Tabelle.</p>
+    <section class="panel connection" aria-labelledby="settings-title"><div class="settings-heading"><h2 id="settings-title">Google Sheets</h2><span class="app-version">App-Version 2</span></div><details id="connection-details"><summary id="connection-title">Google Sheets verbinden <span>Privater Wortschatz</span></summary><div class="connection-body">
+      <p>Öffne deine LearnGerman-Tabelle oder erstelle beim ersten Mal eine neue.</p>
       <p><a href="setup.html">Einrichtung Schritt für Schritt öffnen →</a></p>
       <label for="client-id">Google OAuth Client-ID</label><input id="client-id" placeholder="…apps.googleusercontent.com" autocomplete="off" spellcheck="false"><p class="hint">Die öffentliche Kennung deiner App. Kein Passwort und kein Client Secret.</p>
       <div class="actions"><button id="connect">Mit Google verbinden</button><button id="disconnect" class="text-button" disabled>Verbindung trennen</button></div>

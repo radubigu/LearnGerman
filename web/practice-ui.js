@@ -6,34 +6,52 @@ export function createPracticeUI({ getEntries, context, saveReviews, reloadRevie
   const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
   let sheetId = '', reviews = [], pending = new Map(), session = null, active = false, planning = false, saving = false, storageError = false;
   const panel = $('#practice-content');
-  let overviewVersion = 0;
+  let overviewVersion = 0, latestOverview = null;
   const labels = { meaning: 'Bedeutung', article: 'Artikel', plural: 'Plural', comparative: 'Komparativ', superlative: 'Superlativ', preterite: 'Präteritum', participleII: 'Partizip II', auxiliary: 'Hilfsverb' };
+  const dailyTarget = () => Number($('#practice-new-target').value);
+  try {
+    const remembered = localStorage.getItem('learngerman-daily-new-v1');
+    if ([5, 10, 15].includes(Number(remembered))) $('#practice-new-target').value = remembered;
+  } catch { /* Device-local preference is optional. */ }
+  function updateStartButton() {
+    const current = context(), ready = sheetId && current.id === sheetId;
+    const noScheduledWork = latestOverview && !latestOverview.dueMeanings && !latestOverview.readyGrammarMeanings &&
+      (!latestOverview.newRemaining || !latestOverview.newAvailable) && !$('#practice-force').checked;
+    const start = $('#start-practice');
+    start.disabled = planning || saving || current.busy || !ready || !getEntries().length || current.pendingVocabulary || Boolean(session && !session.finished) || Boolean(noScheduledWork);
+    start.textContent = latestOverview?.dueMeanings ? 'Fällige Wörter üben'
+      : latestOverview?.readyGrammarMeanings ? 'Neue Formen üben'
+        : latestOverview?.newRemaining && latestOverview?.newAvailable ? `Bis zu ${Math.min(5, latestOverview.newRemaining, latestOverview.newAvailable)} neue Bedeutungen lernen`
+          : $('#practice-force').checked ? 'Vorzeitig üben' : 'Übung starten';
+  }
   async function renderOverview() {
     const version = ++overviewVersion, target = $('#practice-overview');
     target.hidden = active || Boolean(session?.finished);
     if (target.hidden) return;
-    if (!sheetId || context().id !== sheetId) { target.replaceChildren(); return; }
+    if (!sheetId || context().id !== sheetId) { latestOverview = null; target.replaceChildren(); return; }
     try {
-      const overview = await progressOverview(getEntries(), reviews);
+      const overview = await progressOverview(getEntries(), reviews, Date.now(), { practicePlurals: $('#practice-plurals').checked, dailyNewTarget: dailyTarget() });
       if (version !== overviewVersion) return;
+      latestOverview = overview; updateStartButton();
       const wasOpen = target.querySelector('.progress-details')?.open ?? false;
       target.replaceChildren();
       const counts = node('div', undefined, 'progress-counts');
-      for (const [label, value] of [['zur Wiederholung fällig', overview.dueMeanings], ['neue Bedeutungen', overview.newMeanings]]) {
-        const card = node('div'); card.append(node('strong', String(value)), node('span', label)); counts.append(card);
-      }
+      const dueCard = node('div'); dueCard.append(node('strong', String(overview.dueMeanings)), node('span', overview.overdueMeanings ? `fällig · ${overview.overdueMeanings} überfällig` : 'heute fällig')); counts.append(dueCard);
+      const newCard = node('div'); newCard.append(node('strong', `${overview.introducedToday}/${overview.newAllowance}`), node('span', 'heute neu')); counts.append(newCard);
+      const roundsCard = node('div'); roundsCard.append(node('strong', String(overview.estimatedRounds)), node('span', overview.estimatedRounds === 1 ? 'geschätzte Runde' : 'geschätzte Runden')); counts.append(roundsCard);
       target.append(counts);
       const details = node('details', undefined, 'progress-details'); details.open = wasOpen;
       details.append(node('summary', 'Lernfortschritt ansehen'), node('p', 'Gezählt werden ausgewählte Bedeutungen. Eine Bedeutung kann wegen ihrer Grammatik fällig sein.', 'hint'));
       for (const [label, data] of [['Bedeutungen', overview.meaning], ['Grammatikformen', overview.grammar]]) {
-        details.append(node('p', `${label}: ${data.established} gefestigt · ${data.learning} in Übung · ${data.new} noch nicht geübt`, 'progress-line'));
+        details.append(node('p', `${label}: ${data.established} gefestigt · ${data.learning} in Übung · ${data.new} bereit${data.locked ? ` · ${data.locked} noch gesperrt` : ''}`, 'progress-line'));
       }
-      details.append(node('p', 'Gefestigt = mindestens drei erfolgreiche, fällige Wiederholungen in Folge. Fehlende Formen werden nicht gezählt.', 'hint'));
+      details.append(node('p', `Heute können noch ${Math.min(overview.newRemaining, overview.newAvailable)} neue Bedeutungen beginnen. Bei einem großen Rückstand oder einer niedrigen letzten Trefferquote pausiert die App neue Bedeutungen automatisch.`, 'hint'));
+      details.append(node('p', 'Grammatik wird schrittweise nach erfolgreichen Bedeutungswiederholungen freigeschaltet. Gefestigt = mindestens drei erfolgreiche, fällige Wiederholungen in Folge.', 'hint'));
       if (overview.nextDue) details.append(node('p', `Nächster geplanter Termin: ${new Date(overview.nextDue).toLocaleString('de-DE')}`, 'hint'));
-      const stages = { new: 'neu', retry: 'erneut üben', learning: 'in Übung', established: 'gefestigt' };
+      const stages = { new: 'bereit', locked: 'wird später freigeschaltet', retry: 'erneut üben', learning: 'in Übung', established: 'gefestigt' };
       for (const row of overview.rows) {
         const item = node('div', undefined, 'progress-word'); item.append(wordHeading(row.entry), node('p', row.entry.definition));
-        for (const skill of row.skills) item.append(node('p', `${labels[skill.dimension]}: ${stages[skill.stage]}${skill.due ? ' · jetzt fällig' : skill.dueAt ? ` · ${new Date(skill.dueAt).toLocaleString('de-DE')}` : ''}`, 'hint'));
+        for (const skill of row.skills) item.append(node('p', `${labels[skill.dimension]}: ${stages[skill.stage]}${skill.due ? ' · jetzt fällig' : skill.dueAt ? ` · ${new Date(skill.dueAt).toLocaleString('de-DE')}` : ''}${skill.difficult ? ' · braucht mehr Übung' : ''}`, 'hint'));
         details.append(item);
       }
       if (overview.rows.length) target.append(details);
@@ -48,7 +66,9 @@ export function createPracticeUI({ getEntries, context, saveReviews, reloadRevie
   function refresh() {
     const current = context();
     const ready = sheetId && current.id === sheetId;
-    $('#start-practice').disabled = planning || saving || current.busy || !ready || !getEntries().length || current.pendingVocabulary || Boolean(session && !session.finished);
+    updateStartButton();
+    $('#practice-panel').dataset.nextAction = active || session?.finished || !$('#start-practice').disabled ? ''
+      : !ready ? 'settings' : current.pendingVocabulary ? 'words' : !getEntries().length ? 'add' : '';
     $('#resume-practice').hidden = !session || session.finished || active;
     $('#resume-practice').disabled = !ready || current.busy;
     $('#pause-practice').hidden = !active;
@@ -59,7 +79,9 @@ export function createPracticeUI({ getEntries, context, saveReviews, reloadRevie
     $('#import-practice').disabled = !ready || saving || current.busy;
     $('#practice-help').textContent = !ready ? 'Öffne zuerst deine Google-Vokabeltabelle.'
       : current.pendingVocabulary ? 'Speichere deine Wortauswahl, bevor du eine neue Runde beginnst.'
-        : !getEntries().length ? 'Füge Wörter zu Meine Auswahl hinzu, um zu üben.' : 'Übe mit den Wörtern aus Meine Auswahl.';
+        : !getEntries().length ? 'Füge Wörter zu Meine Auswahl hinzu, um zu üben.'
+          : latestOverview && !latestOverview.dueMeanings && !latestOverview.readyGrammarMeanings && (!latestOverview.newRemaining || !latestOverview.newAvailable)
+            ? 'Für heute ist das geplante Pensum geschafft. Vorzeitiges Üben bleibt optional.' : 'Fällige Aufgaben kommen zuerst; neue Bedeutungen werden schrittweise freigegeben.';
     $('#practice-help').hidden = active || Boolean(session?.finished);
     $('#practice-save-state').textContent = `${pending.size ? `${pending.size} ${pending.size === 1 ? 'Antwort noch nicht' : 'Antworten noch nicht'} gespeichert. Unter „Lernfortschritt sichern / laden“ kannst du speichern oder eine Sicherung herunterladen.` : ''}${storageError ? ' Der Browser konnte die Runde nicht zwischenspeichern. Bitte Ergebnisse speichern oder herunterladen.' : ''}`;
     $('#vocabulary-workspace').hidden = active;
@@ -75,7 +97,7 @@ export function createPracticeUI({ getEntries, context, saveReviews, reloadRevie
   function setSheet(id, remote) {
     mergeReviews(remote);
     if (sheetId !== id) {
-      sheetId = id; pending = new Map(); reviews = []; session = null; active = false;
+      sheetId = id; pending = new Map(); reviews = []; session = null; active = false; latestOverview = null;
       try {
         const draft = JSON.parse(sessionStorage.getItem(`learngerman-practice-v1:${id}`) || 'null');
         if (draft) {
@@ -102,8 +124,12 @@ export function createPracticeUI({ getEntries, context, saveReviews, reloadRevie
   }
   function showAnswer(parent, question) {
     if (question.dimension === 'meaning') parent.append(wordHeading(question.entry, 'strong'));
-    else if (question.dimension === 'plural') appendForms(parent, question.entry.plural, 'plural');
-    else if (question.dimension === 'article') appendForms(parent, question.answers.map(article => `${article} ${question.entry.word}`), 'singular');
+    else if (question.dimension === 'plural' || question.dimension === 'article') {
+      const answer = node('strong');
+      const forms = question.dimension === 'plural' ? question.entry.plural : question.answers.map(article => `${article} ${question.entry.word}`);
+      appendForms(answer, forms, question.dimension === 'plural' ? 'plural' : 'singular');
+      parent.append(answer);
+    }
     else parent.append(node('strong', question.answers.join(' / ')));
   }
   function submit(input) {
@@ -135,6 +161,7 @@ export function createPracticeUI({ getEntries, context, saveReviews, reloadRevie
       const summary = roundSummary(session);
       const result = node('section', undefined, 'round-summary'); result.setAttribute('aria-label', 'Ergebnis dieser Runde');
       result.append(node('p', 'ERGEBNIS DIESER RUNDE', 'eyebrow'), node('h3', 'Runde abgeschlossen'), node('p', `${summary.correctSkills} von ${summary.skills} Lernzielen ohne Fehler.`, 'round-score'));
+      if (session.newMeaningCount) result.append(node('p', `${session.newMeaningCount} ${session.newMeaningCount === 1 ? 'neue Bedeutung wurde' : 'neue Bedeutungen wurden'} in dieser Runde begonnen.`, 'hint'));
       if (summary.needsPractice.length) {
         result.append(node('h4', 'Noch einmal üben'));
         const words = new Map();
@@ -219,16 +246,26 @@ export function createPracticeUI({ getEntries, context, saveReviews, reloadRevie
     if (planning || $('#start-practice').disabled) return;
     planning = true; refresh(); message('Runde wird vorbereitet …');
     try {
-      session = await planSession(getEntries(), reviews, { force: $('#practice-force').checked });
+      session = await planSession(getEntries(), reviews, { force: $('#practice-force').checked, practicePlurals: $('#practice-plurals').checked, dailyNewTarget: dailyTarget() });
       if (!session.questions.length) {
+        const plan = session.dailyPlan;
         const next = session.nextDue ? ` Nächste Wiederholung: ${new Date(session.nextDue).toLocaleString('de-DE')}.` : '';
-        session = null; message(`Für heute ist nichts fällig.${next} Du kannst „Auch noch nicht fällige Wörter üben“ wählen.`);
+        session = null;
+        message(plan.newAvailable && !plan.newRemaining
+          ? `Das Tagesziel für neue Bedeutungen ist erreicht.${next}`
+          : `Für heute ist nichts fällig.${next} Du kannst nach den fälligen Aufgaben vorzeitig üben.`);
       } else { active = true; message('Ergebnisse werden am Ende der Runde in Google Sheets gespeichert.'); }
       persist(); render(); $('#practice-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (error) { message(error.message, true); }
     finally { planning = false; refresh(); }
   });
   $('#pause-practice').addEventListener('click', () => { active = false; persist(); render(); });
+  $('#practice-plurals').addEventListener('change', () => { latestOverview = null; renderOverview(); });
+  $('#practice-force').addEventListener('change', updateStartButton);
+  $('#practice-new-target').addEventListener('change', () => {
+    try { localStorage.setItem('learngerman-daily-new-v1', $('#practice-new-target').value); } catch { /* Optional preference. */ }
+    latestOverview = null; renderOverview();
+  });
   $('#resume-practice').addEventListener('click', () => {
     const restored = restorePracticeDraft({ pending: [...pending.values()], session }, getEntries());
     session = restored.session; active = Boolean(session); persist(); render();

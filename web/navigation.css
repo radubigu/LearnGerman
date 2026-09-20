@@ -1,0 +1,55 @@
+:root{background:#f4f6fa}
+.topbar{height:72px}
+.v2-nav{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:center;gap:8px;padding:9px 20px;background:#fff;border-bottom:1px solid var(--line)}
+.v2-nav button{background:transparent;color:#42536c;border:0;border-radius:8px;padding:12px 20px;font-size:14px;white-space:nowrap}
+.v2-nav button:hover{background:#f3f6fc;filter:none}
+.v2-nav button[aria-current=page]{background:#eaf0ff;color:#2348bd}
+.v2-nav button:disabled{opacity:.45}
+#v2-word-count{display:inline-block;margin-left:6px;min-width:23px;padding:1px 6px;border-radius:12px;background:#e8edf8;color:#2845a0;font-size:12px}
+.v2-nav button[aria-current=page] #v2-word-count{background:#d9e4ff}
+main{max-width:1060px;padding-top:36px}
+.v2-heading{margin-bottom:24px}
+.v2-heading h1{font-size:clamp(30px,4vw,40px)}
+.workspace{display:block}
+.lookup,.collection{min-height:0;max-width:100%}
+.panel{border-color:#d9e1ed;box-shadow:0 8px 24px rgba(28,46,83,.035)}
+.practice-panel,.lookup,.collection,.connection{padding:32px}
+.connection{margin-top:0}
+.collection .actions{flex-direction:row;align-items:center}
+.collection .actions button{width:auto}
+.collection #selection{max-width:820px}
+.collection .selected-item{padding:22px 0}
+.collection .full{width:auto;min-width:220px}
+.collection input[type=file]{max-width:450px}
+.connection-body{max-width:780px}
+.settings-heading{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.settings-heading h2{margin-bottom:0}
+.app-version{color:var(--muted);font-size:12px;white-space:nowrap}
+.v2-guidance{display:flex;align-items:center;flex-wrap:wrap;gap:12px 18px;margin:0 0 22px;color:var(--muted);font-size:14px}
+.v2-guidance button{font-size:14px}
+.v2-add-selection{border-top:1px solid var(--line);padding-top:18px;margin:4px 0 20px}
+.v2-empty{border:1px dashed #b5c3d9;border-radius:10px;background:#f7f9fd;padding:20px 22px;margin:18px 0 22px;max-width:700px}
+.v2-empty p{margin:0 0 14px;color:#465870}
+.collection #selection .selection-empty{display:none}
+#practice-panel[data-next-action]:not([data-next-action=""]) #practice-start-controls{display:none!important}
+.v2-nav button:focus-visible{outline:3px solid #d68b00;outline-offset:2px}
+body[data-view=practice] #vocabulary-workspace,
+body[data-view=practice] .connection,
+body[data-view=add] #practice-panel,
+body[data-view=add] .collection,
+body[data-view=add] .connection,
+body[data-view=words] #practice-panel,
+body[data-view=words] .lookup,
+body[data-view=words] .connection,
+body[data-view=settings] #practice-panel,
+body[data-view=settings] #vocabulary-workspace{display:none!important}
+@media(max-width:700px){
+  .v2-nav{position:static;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:10px 16px}
+  .v2-nav button{white-space:normal;min-height:46px;padding:8px;font-size:13px;line-height:1.25}
+  main{padding:24px 16px}
+  .practice-panel,.lookup,.collection,.connection{padding:22px}
+  .v2-heading{margin-bottom:20px}
+  .edition{font-size:11px;letter-spacing:.7px}
+  .v2-guidance button{width:100%}
+}
+@media(max-width:420px){.collection .actions{flex-direction:column;align-items:stretch}.collection .actions button,.collection .full{width:100%}.settings-heading{align-items:flex-start;flex-direction:column;gap:4px}}

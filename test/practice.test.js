@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { practiceQuestions, planSession, checkAnswer, answerQuestion, advanceQuestion, reviewState, mergeReviews, reviewRows, parseReviews, REVIEW_HEADER, validateSession, restorePracticeDraft, progressOverview, roundSummary, practiceDraft } from '../web/practice.js';
+import { practiceQuestions, planSession, dailyPracticePlan, checkAnswer, answerQuestion, advanceQuestion, reviewState, mergeReviews, reviewRows, parseReviews, REVIEW_HEADER, validateSession, restorePracticeDraft, progressOverview, roundSummary, practiceDraft } from '../web/practice.js';
 
 const DAY = 86400000;
 const entry = (word, extra = {}) => ({ id: word, origin: 'manual', word, definition: `Erfundene Erklärung für ${word}.`, pos: '', possiblePartsOfSpeech: [], singular: [], plural: [], source: '', example: '', ...extra });
@@ -41,7 +41,34 @@ test('new sessions use cards then recognition and recall, limited to five select
     assert.ok(question.options.every(option => entries.some(item => item.word === option.value)));
   }
   const alone = await planSession([noun], [], { now: DAY });
-  assert.deepEqual(alone.questions.map(q => q.mode), ['learn', 'self', 'type', 'choice']);
+  assert.deepEqual(alone.questions.map(q => q.mode), ['learn', 'self', 'type']);
+  assert.equal(alone.questions.some(q => q.dimension !== 'meaning'), false);
+});
+
+test('new rounds avoid two meanings of the same spelling when other words are available', async () => {
+  const entries = [entry('Bank', { id: 'bank-1', definition: 'Ein Geldinstitut.' }), entry('Bank', { id: 'bank-2', definition: 'Eine Sitzgelegenheit.' }),
+    entry('Baum'), entry('Fluss'), entry('Haus'), entry('Weg')];
+  const session = await planSession(entries, [], { now: DAY });
+  const learned = session.questions.filter(question => question.mode === 'learn').map(question => question.entry.word);
+  assert.equal(learned.length, 5);
+  assert.equal(learned.filter(word => word === 'Bank').length, 1);
+});
+
+test('grammar unlocks progressively and plural practice remains optional', async () => {
+  const [{ questions }] = await practiceQuestions([noun]);
+  const events = [review(questions[0]), review(questions[1])];
+  assert.deepEqual((await planSession([noun], events, { now: DAY + 1 })).questions, []);
+  assert.deepEqual((await planSession([noun], events, { now: DAY + 1, practicePlurals: true })).questions, []);
+  const withoutPlurals = await progressOverview([noun], events, DAY + 1);
+  assert.equal(withoutPlurals.grammar.total, 1);
+  assert.equal(withoutPlurals.dueMeanings, 0);
+  const withPlurals = await progressOverview([noun], events, DAY + 1, { practicePlurals: true });
+  assert.equal(withPlurals.grammar.total, 2);
+  assert.equal(withPlurals.grammar.new, 0);
+  assert.equal(withPlurals.grammar.locked, 1);
+  assert.equal(withPlurals.dueMeanings, 0);
+  events.push(review(questions[0], { sessionId: 'meaning-2', at: DAY * 2 }), review(questions[1], { sessionId: 'article-2', at: DAY * 2 }));
+  assert.deepEqual((await planSession([noun], events, { now: DAY * 2 + 1, practicePlurals: true })).questions.map(question => question.dimension), ['plural']);
 });
 
 test('identical saved definitions accept recorded synonyms and avoid ambiguous choice distractors', async () => {
@@ -98,10 +125,12 @@ test('spaced review promotes once per session, respects due boundaries and ignor
 test('meaning and grammar progress separately; untested grammar rotates and edited forms get new progress keys', async () => {
   const [{ questions }] = await practiceQuestions([verb]);
   const events = [review(questions[0]), review(questions[1])];
-  const session = await planSession([verb], events, { now: DAY + 1 });
+  assert.deepEqual((await planSession([verb], events, { now: DAY + 1 })).questions, []);
+  events.push(review(questions[0], { sessionId: 'meaning-2', at: DAY * 2 }), review(questions[1], { sessionId: 'preterite-2', at: DAY * 2 }));
+  const session = await planSession([verb], events, { now: DAY * 2 + 1 });
   assert.deepEqual(session.questions.map(q => q.dimension), ['participleII']);
-  events.push(review(questions[2]));
-  assert.equal((await planSession([verb], events, { now: DAY + 1 })).questions[0].dimension, 'auxiliary');
+  events.push(review(questions[2], { sessionId: 'participle', at: DAY * 2 + 1 }));
+  assert.equal((await planSession([verb], events, { now: DAY * 2 + 2 })).questions[0].dimension, 'auxiliary');
   const [changed] = await practiceQuestions([{ ...verb, grammar: { ...verb.grammar, preterite: ['andere Form'] } }]);
   assert.equal(changed.questions[0].questionKey, questions[0].questionKey);
   assert.notEqual(changed.questions[1].questionKey, questions[1].questionKey);
@@ -144,13 +173,77 @@ test('stale or corrupt round recovery retains valid unsaved results', async () =
 test('overview distinguishes new meanings, due reviews, and independent grammar including due boundaries', async () => {
   const [{ questions }] = await practiceQuestions([noun]);
   const events = [review(questions[0]), review(questions[1], { correct: false })];
-  const before = await progressOverview([noun, entry('neu')], events, DAY + 599999);
+  const before = await progressOverview([noun, entry('neu')], events, DAY + 599999, { practicePlurals: true });
   assert.equal(before.newMeanings, 1); assert.equal(before.dueMeanings, 0);
-  assert.equal(before.meaning.learning, 1); assert.equal(before.grammar.new, 1);
-  const due = await progressOverview([noun, entry('neu')], events, DAY + 600000);
+  assert.equal(before.meaning.learning, 1); assert.equal(before.grammar.new, 0); assert.equal(before.grammar.locked, 1);
+  const due = await progressOverview([noun, entry('neu')], events, DAY + 600000, { practicePlurals: true });
   assert.equal(due.dueMeanings, 1); assert.equal(due.grammar.due, 1);
   assert.equal((await progressOverview([], events)).meaning.total, 0);
   assert.equal((await progressOverview([entry('neu')], events)).dueMeanings, 0);
+});
+
+test('daily admission caps new meanings across rounds and pauses them for a large backlog', async () => {
+  const entries = Array.from({ length: 12 }, (_, index) => entry(`Wort${index}`));
+  const cards = await practiceQuestions(entries);
+  const now = DAY * 2;
+  const introduced = cards.slice(0, 10).map((card, index) => review(card.questions[0], { sessionId: `new-${index}`, at: now }));
+  const plan = await dailyPracticePlan(entries, introduced, now + 1);
+  assert.equal(plan.introducedToday, 10);
+  assert.equal(plan.newAllowance, 10);
+  assert.equal(plan.newRemaining, 0);
+  assert.equal((await planSession(entries, introduced, { now: now + 1 })).questions.length, 0);
+
+  const moderateEntries = Array.from({ length: 32 }, (_, index) => entry(`Mittel${index}`));
+  const moderateCards = await practiceQuestions(moderateEntries);
+  const moderateBacklog = moderateCards.slice(0, 31).map((card, index) => review(card.questions[0], { sessionId: `middle-${index}`, at: DAY }));
+  const moderatePlan = await dailyPracticePlan(moderateEntries, moderateBacklog, DAY * 2);
+  assert.equal(moderatePlan.newAllowance, 5);
+  assert.equal((await planSession(moderateEntries, moderateBacklog, { now: DAY * 2 })).newMeaningCount, 1);
+
+  const backlogEntries = Array.from({ length: 62 }, (_, index) => entry(`Fällig${index}`));
+  const backlogCards = await practiceQuestions(backlogEntries);
+  const backlog = backlogCards.slice(0, 61).map((card, index) => review(card.questions[0], { sessionId: `due-${index}`, at: DAY }));
+  const backlogPlan = await dailyPracticePlan(backlogEntries, backlog, DAY * 2);
+  assert.equal(backlogPlan.dueSkills, 61);
+  assert.equal(backlogPlan.newAllowance, 0);
+  const round = await planSession(backlogEntries, backlog, { now: DAY * 2 });
+  assert.equal(round.wordCount, 5);
+  assert.equal(round.newMeaningCount, 0);
+});
+
+test('recent accuracy reduces or pauses new material without changing the selected daily target', async () => {
+  const entries = Array.from({ length: 14 }, (_, index) => entry(`Genauigkeit${index}`));
+  const cards = await practiceQuestions(entries);
+  const history = cards.slice(0, 10).map((card, index) => review(card.questions[0], { sessionId: `history-${index}`, at: DAY * 2, correct: index < 8 }));
+  const reduced = await dailyPracticePlan(entries, history, DAY * 3, { dailyNewTarget: 15 });
+  assert.equal(reduced.recentAttempts, 10);
+  assert.equal(reduced.recentAccuracy, 0.8);
+  assert.equal(reduced.newAllowance, 5);
+  assert.equal(reduced.newRemaining, 5);
+  history[7] = { ...history[7], correct: false };
+  const paused = await dailyPracticePlan(entries, history, DAY * 3, { dailyNewTarget: 15 });
+  assert.equal(paused.recentAccuracy, 0.7);
+  assert.equal(paused.newAllowance, 0);
+});
+
+test('long-term intervals extend to a year and a lapse falls back instead of erasing maturity', async () => {
+  const [{ questions: [question] }] = await practiceQuestions([entry('langfristig')]);
+  const events = [];
+  let at = DAY;
+  for (let index = 0; index < 9; index++) {
+    events.push(review(question, { sessionId: `success-${index}`, at }));
+    at = reviewState(events).get(question.questionKey).dueAt;
+  }
+  const mature = reviewState(events).get(question.questionKey);
+  assert.equal(mature.streak, 9);
+  assert.equal(mature.dueAt - events.at(-1).at, 365 * DAY);
+  events.push(review(question, { sessionId: 'lapse', at: mature.dueAt, correct: false }));
+  const lapse = reviewState(events).get(question.questionKey);
+  assert.deepEqual(lapse, { streak: 0, dueAt: mature.dueAt + 600000, lapseFrom: 9 });
+  events.push(review(question, { sessionId: 'relearn', at: lapse.dueAt }));
+  const recovered = reviewState(events).get(question.questionKey);
+  assert.equal(recovered.streak, 7);
+  assert.equal(recovered.dueAt - lapse.dueAt, 120 * DAY);
 });
 
 test('established progress requires three scheduled successes; round summary counts retries once per skill', async () => {

@@ -5,6 +5,8 @@ import { createLibrary, parseSheetId, validateMeaning, selectionKey } from './li
 import { GRAMMAR_FIELDS } from './grammar.js';
 import { createPracticeUI } from './practice-ui.js';
 import { editMeaning } from './edit-entry.js';
+import { parseWordList } from './word-list.js';
+import { deeplTranslationUrl } from './translation.js';
 
 const $ = selector => document.querySelector(selector);
 const dictionary = createDictionary();
@@ -20,6 +22,10 @@ let googleBusy = false;
 let undoItem = null;
 const grammarDrafts = new Map();
 let practice;
+let bulkQueue = [];
+let bulkIndex = -1;
+let parsedWords;
+let activeEnglishHint = '';
 const node = (tag, text, className) => {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
@@ -27,6 +33,17 @@ const node = (tag, text, className) => {
   return element;
 };
 function link(text, url) { const element = node('a', text); element.href = url; element.target = '_blank'; element.rel = 'noreferrer'; return element; }
+function openTranslationPopup(event) {
+  const width = 520;
+  const height = 680;
+  const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+  const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+  const popup = window.open(event.currentTarget.href, 'learngerman-deepl', `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+  // If the browser blocks popups, keep the anchor's normal new-tab fallback.
+  if (!popup) return;
+  event.preventDefault();
+  try { popup.opener = null; popup.focus(); } catch { /* Cross-origin window controls may be restricted. */ }
+}
 function status(selector, message, error = false) { $(selector).textContent = message; $(selector).classList.toggle('error', error); }
 function typeLabel(entry) {
   const label = wordTypeLabel(entry.pos ? [entry.pos] : entry.possiblePartsOfSpeech ?? []);
@@ -118,6 +135,14 @@ function appendGrammarEditor(parent, item, key) {
   details.append(form); parent.append(details);
 }
 
+function showEnglishHint(englishHint = '') {
+  activeEnglishHint = englishHint.trim();
+  const hint = $('#import-meaning-hint');
+  hint.hidden = !activeEnglishHint;
+  hint.replaceChildren();
+  if (activeEnglishHint) hint.append(node('strong', 'Englischer Hinweis aus der Importliste'), node('p', activeEnglishHint));
+}
+
 function updateSelection() {
   $('#count').textContent = selected.size;
   $('#download').disabled = !selected.size;
@@ -187,8 +212,10 @@ function renderEntries(word, raw, partsOfSpeech = []) {
     if (!entry.senses.length) article.append(node('p', 'Keine ausformulierte Erklärung. Bitte auch die Grundform prüfen.', 'hint'));
     for (const sense of entry.senses) {
       const key = JSON.stringify([word, entry.entryIndex, sense.senseIndex, sense.definition]);
-      const label = node('label', undefined, 'sense');
+      const senseRow = node('div', undefined, 'sense-row');
+      const meaning = node('div', undefined, 'sense');
       const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.dataset.key = key; checkbox.checked = selected.has(key);
+      checkbox.setAttribute('aria-label', `Bedeutung auswählen: ${sense.definition}`);
       const content = node('span'); content.append(node('span', sense.definition, 'definition'));
       if (sense.example) content.append(node('span', sense.example, 'example'));
       checkbox.addEventListener('change', () => {
@@ -196,11 +223,16 @@ function renderEntries(word, raw, partsOfSpeech = []) {
         else { undoItem = selected.get(key); library.remove(key); grammarDrafts.delete(key); }
         updateSelection();
       });
-      label.append(checkbox, content); article.append(label);
+      const translate = link('EN', deeplTranslationUrl(sense.definition));
+      translate.className = 'definition-translation';
+      translate.setAttribute('aria-label', 'Diese Definition mit DeepL ins Englische übersetzen');
+      translate.title = 'Die Definition in einem kleinen DeepL-Fenster öffnen.';
+      translate.addEventListener('click', openTranslationPopup);
+      meaning.append(checkbox, content); senseRow.append(translate, meaning); article.append(senseRow);
     }
     if (entry.baseWords.length) {
       const bases = node('div', 'Grundform: ', 'examples');
-      entry.baseWords.forEach(base => { const button = node('button', base); button.addEventListener('click', () => search(base)); bases.append(button); });
+      entry.baseWords.forEach(base => { const button = node('button', base); button.addEventListener('click', () => search(base, activeEnglishHint)); bases.append(button); });
       article.append(bases);
     }
     article.append(link('Original im Wiktionary ↗', entry.source)); container.append(article);
@@ -232,8 +264,9 @@ async function choose(result, signal) {
       : `${resolved.word}: Wähle die passenden Bedeutungen.`);
   } catch (error) { if (!signal.aborted) reportLookupError(error, result.word); }
 }
-async function search(query) {
+async function search(query, englishHint = '') {
   controller?.abort(); controller = new AbortController(); const signal = controller.signal;
+  showEnglishHint(englishHint);
   $('#query').value = query;
   $('#suggestions').replaceChildren(); $('#entries').replaceChildren(node('p', 'Wörterbuch wird durchsucht …', 'selection-empty'));
   status('#search-status', 'Suche läuft …');
@@ -260,11 +293,108 @@ async function search(query) {
   } catch (error) { if (!signal.aborted) reportLookupError(error, query); }
 }
 $('#search-form').addEventListener('submit', event => { event.preventDefault(); search($('#query').value); });
+function renderBulkQueue() {
+  const active = bulkQueue[bulkIndex];
+  const finished = bulkQueue.filter(item => item.state === 'done').length;
+  const skipped = bulkQueue.filter(item => item.state === 'skipped').length;
+  $('#bulk-review').hidden = !bulkQueue.length;
+  $('#bulk-bottom-actions').hidden = !active;
+  $('#bulk-next').disabled = !active;
+  $('#bulk-skip').disabled = !active;
+  $('#bulk-review-status').textContent = active
+    ? `Wort ${bulkIndex + 1} von ${bulkQueue.length}: „${active.word}“. Wähle eine oder mehrere Bedeutungen und gehe dann weiter. ${finished} durchgesehen, ${skipped} übersprungen.`
+    : `Liste durchgesehen: ${finished} durchgesehen, ${skipped} übersprungen. Ausgewählte Bedeutungen in „Meine Auswahl“ speichern.`;
+  $('#bulk-bottom-status').textContent = active ? `Listenwort ${bulkIndex + 1} von ${bulkQueue.length}: ${active.word}` : '';
+  const list = $('#bulk-queue'); list.replaceChildren();
+  bulkQueue.forEach((item, index) => {
+    const row = node('li');
+    if (index === bulkIndex) row.classList.add('current');
+    if (item.state === 'done') row.classList.add('done');
+    if (item.state === 'skipped') row.classList.add('skipped');
+    const button = node('button', item.word); button.type = 'button';
+    if (index === bulkIndex) button.setAttribute('aria-current', 'step');
+    button.addEventListener('click', () => openBulkWord(index));
+    row.append(button);
+    if (item.englishHint) row.append(document.createTextNode(' — '), node('span', item.englishHint, 'queue-hint'));
+    row.append(node('span', item.state === 'done' ? 'durchgesehen' : item.state === 'skipped' ? 'übersprungen' : index === bulkIndex ? 'aktuell' : 'offen', 'queue-state'));
+    list.append(row);
+  });
+}
+function openBulkWord(index) {
+  bulkIndex = index;
+  bulkQueue[index].state = 'open';
+  const { word, englishHint } = bulkQueue[index];
+  if (!manualDirty) {
+    $('#manual-form').reset();
+    $('#manual-pos').dispatchEvent(new Event('change'));
+    $('#manual-word').value = word;
+    updateManualLookup();
+    status('#manual-status', '');
+  } else status('#manual-status', 'Dein offener manueller Entwurf bleibt erhalten. Prüfe vor dem Hinzufügen das Feld „Wort / Grundform“.');
+  renderBulkQueue();
+  search(word, englishHint);
+  $('#search-form').scrollIntoView({ block: 'start' });
+}
+function advanceBulk(skip) {
+  if (bulkIndex < 0) return;
+  bulkQueue[bulkIndex].state = skip ? 'skipped' : 'done';
+  const next = [...bulkQueue.keys()].find(index => index > bulkIndex && bulkQueue[index].state === 'open')
+    ?? bulkQueue.findIndex(item => item.state === 'open');
+  if (next < 0) { bulkIndex = -1; renderBulkQueue(); $('#bulk-details').scrollIntoView({ block: 'start' }); }
+  else openBulkWord(next);
+}
+function clearBulkPreview() {
+  parsedWords = undefined;
+  $('#bulk-preview').hidden = true;
+  status('#bulk-parse-status', '');
+}
+$('#bulk-text').addEventListener('input', clearBulkPreview);
+$('#bulk-mode').addEventListener('change', clearBulkPreview);
+$('#bulk-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    if (file.size > 256 * 1024) throw new Error('Bitte eine Textdatei unter 256 KB verwenden.');
+    $('#bulk-text').value = await file.text();
+    clearBulkPreview();
+    status('#bulk-parse-status', `${file.name} geladen. Prüfe den Text und die Trennzeichen.`);
+  } catch (error) { status('#bulk-parse-status', error.message, true); }
+  event.target.value = '';
+});
+$('#bulk-form').addEventListener('submit', event => {
+  event.preventDefault();
+  try {
+    parsedWords = parseWordList($('#bulk-text').value, $('#bulk-mode').value);
+    $('#bulk-preview-list').replaceChildren(...parsedWords.items.map(item => {
+      const row = node('li'); row.append(node('strong', item.word));
+      if (item.englishHint) row.append(document.createTextNode(' — '), node('span', item.englishHint, 'queue-hint'));
+      return row;
+    }));
+    $('#bulk-preview-count').textContent = `${parsedWords.words.length} ${parsedWords.words.length === 1 ? 'Wort' : 'Wörter'} erkannt${parsedWords.duplicates ? `, ${parsedWords.duplicates} ${parsedWords.duplicates === 1 ? 'doppelter Eintrag' : 'doppelte Einträge'} entfernt` : ''}. Prüfe die Liste vor dem Start.`;
+    $('#bulk-preview').hidden = false;
+    status('#bulk-parse-status', '');
+  } catch (error) { clearBulkPreview(); status('#bulk-parse-status', error.message, true); }
+});
+$('#bulk-add').addEventListener('click', () => {
+  if (!parsedWords) return;
+  const existing = new Set(bulkQueue.map(item => item.word));
+  const added = parsedWords.items.filter(item => !existing.has(item.word));
+  if (!added.length) { status('#bulk-parse-status', 'Alle Wörter stehen bereits in der Prüfliste.'); return; }
+  bulkQueue.push(...added.map(item => ({ ...item, state: 'open' })));
+  $('#bulk-preview').hidden = true;
+  parsedWords = undefined;
+  status('#bulk-parse-status', `${added.length} ${added.length === 1 ? 'Wort' : 'Wörter'} zur Prüfliste hinzugefügt.`);
+  if (bulkIndex < 0) openBulkWord(bulkQueue.length - added.length);
+  else renderBulkQueue();
+});
+for (const id of ['bulk-next', 'bulk-bottom-next']) $(`#${id}`).addEventListener('click', () => advanceBulk(false));
+for (const id of ['bulk-skip', 'bulk-bottom-skip']) $(`#${id}`).addEventListener('click', () => advanceBulk(true));
 function updateManualLookup() {
   $('#manual-lookup').href = wiktionarySearchUrl($('#manual-word').value);
 }
 function openManual(word) {
-  if (!$('#manual-word').value.trim()) $('#manual-word').value = word.trim();
+  if (!manualDirty) $('#manual-word').value = word.trim();
+  else if ($('#manual-word').value.trim() !== word.trim()) status('#manual-status', 'Dein offener manueller Entwurf bleibt erhalten. Prüfe vor dem Hinzufügen das Feld „Wort / Grundform“.');
   $('#manual-details').open = true;
   updateManualLookup();
   $('#manual-word').focus();
@@ -318,7 +448,7 @@ $('#download').addEventListener('click', () => {
   const url = URL.createObjectURL(new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
   const anchor = node('a'); anchor.href = url; anchor.download = 'learngerman-auswahl.json'; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
-window.addEventListener('beforeunload', event => { if (library.pending.size || manualDirty || grammarDrafts.size || practice?.hasUnsaved()) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', event => { if (library.pending.size || manualDirty || grammarDrafts.size || bulkQueue.some(item => item.state === 'open') || practice?.hasUnsaved()) { event.preventDefault(); event.returnValue = ''; } });
 $('#undo-remove').addEventListener('click', () => {
   if (undoItem) library.put(undoItem);
   undoItem = null; updateSelection();

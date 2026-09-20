@@ -1,4 +1,4 @@
-import { mkdir, copyFile, readdir } from 'node:fs/promises';
+import { mkdir, copyFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 // Publish only web assets. Project documentation and local data stay outside dist.
@@ -9,5 +9,6 @@ async function copyTree(source, destination) {
     else if (item.isFile()) await copyFile(join(source, item.name), join(destination, item.name));
   }
 }
+await rm('dist', { recursive: true, force: true });
 await copyTree('web', 'dist');
 console.log('Static app built in dist/.');

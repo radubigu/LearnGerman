@@ -8,7 +8,7 @@ const server = createServer(async (request, response) => {
   try {
     if (!['GET', 'HEAD'].includes(request.method)) { response.writeHead(405).end(); return; }
     const path = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
-    const file = resolve(root, '.' + (path === '/' ? '/index.html' : path));
+    const file = resolve(root, '.' + (path.endsWith('/') ? `${path}index.html` : path));
     if (!file.startsWith(root + sep)) { response.writeHead(403).end(); return; }
     const body = await readFile(file);
     response.writeHead(200, { 'Content-Type': `${types[extname(file)] ?? 'application/octet-stream'}; charset=utf-8`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });

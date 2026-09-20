@@ -36,6 +36,8 @@ Live follow-up probes confirmed `begabt` search results include both `adj` and `
 
 The adapter preserves exact lookup independently from prefix search, separates 404 from service failures, validates payload shape, handles cancellation/timeouts, and filters adjective agreement forms. The UI offers a direct Wiktionary link when lookup fails. It does not silently replace an encoded word with a different spelling.
 
+Update 2026-09-19: the user tested the current app/service and confirmed that Unicode lookup such as **Übung** works. The earlier encoded-path observations are retained above as historical integration findings, but the automatic Unicode lookup issue is closed as currently resolved. No client code change was needed.
+
 The [WiktAPI quickstart](https://wiktapi.dev/quickstart) states that no API key is required. The [about page](https://wiktapi.dev/about) describes the project as free and open source. A published service quota/SLA and a complete content-licensing assessment have not been established. The UI retains dictionary attribution and links to Wiktionary licensing. Revisit attribution requirements before publication and wider export/import work.
 
 ## Google Sheets experiment
@@ -70,5 +72,5 @@ Creation requests are not retried automatically. A timeout may mean a file was c
 
 1. Validate new vocabulary-table create/save/readback/reopen using invented meanings and the user's configured Google account.
 2. Verify restricted sharing, denied access, token expiry, and two-device synchronization.
-3. The manual Wiktionary fallback is implemented; automatic Unicode lookup and complete attribution review remain open.
+3. Automatic Unicode lookup was confirmed working by the user on 2026-09-19. The manual Wiktionary fallback remains implemented; complete attribution review remains open.
 4. Broaden the library to editing/sets and later practice after validating this persistence slice. Latest automated result: 32 tests passed with mocked transports; no live vocabulary write was performed by the agent.
